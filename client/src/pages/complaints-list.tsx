@@ -74,8 +74,8 @@ export default function ComplaintsList() {
         searchQuery === "" ||
         complaint.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         complaint.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        complaint.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        complaint.id.toLowerCase().includes(searchQuery.toLowerCase());
+        (complaint.customerName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        String(complaint.id).includes(searchQuery);
 
       const matchesSource =
         sourceFilter === "all" || complaint.source === sourceFilter;
@@ -267,7 +267,7 @@ export default function ComplaintsList() {
                         data-testid={`row-complaint-${complaint.id}`}
                       >
                         <TableCell className="font-mono text-xs">
-                          {complaint.id.slice(0, 8)}...
+                          #{complaint.id}
                         </TableCell>
                         <TableCell className="max-w-[200px] truncate font-medium">
                           {complaint.title}

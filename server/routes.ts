@@ -2,7 +2,7 @@ import type { Express } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertComplaintSchema, updateComplaintSchema } from "@shared/schema";
+import { insertComplaintSchema, updateComplaintSchema, insertTeamMemberSchema, insertSavedFilterSchema } from "@shared/schema";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -23,7 +23,7 @@ const upload = multer({
     },
   }),
   limits: {
-    fileSize: 10 * 1024 * 1024, // 10MB
+    fileSize: 10 * 1024 * 1024,
   },
 });
 
@@ -32,36 +32,38 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // Serve uploaded files
   app.use("/uploads", (req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     next();
   }, express.static(uploadDir));
 
-  // Get dashboard stats
   app.get("/api/stats", async (req, res) => {
     try {
       const stats = await storage.getStats();
       res.json(stats);
     } catch (error) {
+      console.error("Failed to get stats:", error);
       res.status(500).json({ error: "Failed to get stats" });
     }
   });
 
-  // Get all complaints
   app.get("/api/complaints", async (req, res) => {
     try {
       const complaints = await storage.getComplaints();
       res.json(complaints);
     } catch (error) {
+      console.error("Failed to get complaints:", error);
       res.status(500).json({ error: "Failed to get complaints" });
     }
   });
 
-  // Get single complaint
   app.get("/api/complaints/:id", async (req, res) => {
     try {
-      const complaint = await storage.getComplaint(req.params.id);
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
+      const complaint = await storage.getComplaint(id);
       if (!complaint) {
         return res.status(404).json({ error: "Complaint not found" });
       }
@@ -71,7 +73,6 @@ export async function registerRoutes(
     }
   });
 
-  // Create complaint
   app.post("/api/complaints", async (req, res) => {
     try {
       const validationResult = insertComplaintSchema.safeParse(req.body);
@@ -89,9 +90,13 @@ export async function registerRoutes(
     }
   });
 
-  // Update complaint
   app.put("/api/complaints/:id", async (req, res) => {
     try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
+      
       const validationResult = updateComplaintSchema.safeParse(req.body);
       if (!validationResult.success) {
         return res.status(400).json({ 
@@ -100,7 +105,7 @@ export async function registerRoutes(
         });
       }
       
-      const complaint = await storage.updateComplaint(req.params.id, validationResult.data);
+      const complaint = await storage.updateComplaint(id, validationResult.data);
       if (!complaint) {
         return res.status(404).json({ error: "Complaint not found" });
       }
@@ -110,10 +115,13 @@ export async function registerRoutes(
     }
   });
 
-  // Delete complaint
   app.delete("/api/complaints/:id", async (req, res) => {
     try {
-      const deleted = await storage.deleteComplaint(req.params.id);
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
+      const deleted = await storage.deleteComplaint(id);
       if (!deleted) {
         return res.status(404).json({ error: "Complaint not found" });
       }
@@ -123,26 +131,50 @@ export async function registerRoutes(
     }
   });
 
-  // Get notes for complaint
+  app.post("/api/complaints/bulk-update", async (req, res) => {
+    try {
+      const { ids, status } = req.body;
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "IDs array is required" });
+      }
+      if (!status) {
+        return res.status(400).json({ error: "Status is required" });
+      }
+      
+      const numericIds = ids.map((id: string | number) => typeof id === 'string' ? parseInt(id, 10) : id);
+      const updated = await storage.bulkUpdateStatus(numericIds, status);
+      res.json({ updated });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to bulk update complaints" });
+    }
+  });
+
   app.get("/api/complaints/:id/notes", async (req, res) => {
     try {
-      const notes = await storage.getNotes(req.params.id);
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
+      const notes = await storage.getNotes(id);
       res.json(notes);
     } catch (error) {
       res.status(500).json({ error: "Failed to get notes" });
     }
   });
 
-  // Add note to complaint
   app.post("/api/complaints/:id/notes", async (req, res) => {
     try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
       const { text } = req.body;
       if (!text || typeof text !== "string" || text.trim().length === 0) {
         return res.status(400).json({ error: "Note text is required" });
       }
       
       const note = await storage.createNote({
-        complaintId: req.params.id,
+        complaintId: id,
         text: text.trim(),
       });
       res.status(201).json(note);
@@ -151,17 +183,120 @@ export async function registerRoutes(
     }
   });
 
-  // Get status history for complaint
   app.get("/api/complaints/:id/status-history", async (req, res) => {
     try {
-      const history = await storage.getStatusHistory(req.params.id);
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid complaint ID" });
+      }
+      const history = await storage.getStatusHistory(id);
       res.json(history);
     } catch (error) {
       res.status(500).json({ error: "Failed to get status history" });
     }
   });
 
-  // Upload files
+  app.get("/api/team-members", async (req, res) => {
+    try {
+      const members = await storage.getTeamMembers();
+      res.json(members);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get team members" });
+    }
+  });
+
+  app.post("/api/team-members", async (req, res) => {
+    try {
+      const validationResult = insertTeamMemberSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const member = await storage.createTeamMember(validationResult.data);
+      res.status(201).json(member);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create team member" });
+    }
+  });
+
+  app.put("/api/team-members/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid team member ID" });
+      }
+      
+      const member = await storage.updateTeamMember(id, req.body);
+      if (!member) {
+        return res.status(404).json({ error: "Team member not found" });
+      }
+      res.json(member);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update team member" });
+    }
+  });
+
+  app.delete("/api/team-members/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid team member ID" });
+      }
+      const deleted = await storage.deleteTeamMember(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Team member not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete team member" });
+    }
+  });
+
+  app.get("/api/saved-filters", async (req, res) => {
+    try {
+      const filters = await storage.getSavedFilters();
+      res.json(filters);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get saved filters" });
+    }
+  });
+
+  app.post("/api/saved-filters", async (req, res) => {
+    try {
+      const validationResult = insertSavedFilterSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: validationResult.error.errors 
+        });
+      }
+      
+      const filter = await storage.createSavedFilter(validationResult.data);
+      res.status(201).json(filter);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to create saved filter" });
+    }
+  });
+
+  app.delete("/api/saved-filters/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid filter ID" });
+      }
+      const deleted = await storage.deleteSavedFilter(id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Saved filter not found" });
+      }
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete saved filter" });
+    }
+  });
+
   app.post("/api/upload", upload.array("files", 10), async (req, res) => {
     try {
       const files = req.files as Express.Multer.File[];
@@ -176,7 +311,6 @@ export async function registerRoutes(
     }
   });
 
-  // Basic reports endpoint
   app.get("/api/reports/basic", async (req, res) => {
     try {
       const complaints = await storage.getComplaints();
@@ -210,6 +344,47 @@ export async function registerRoutes(
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+
+  app.get("/api/reports/trends", async (req, res) => {
+    try {
+      const complaints = await storage.getComplaints();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+      
+      const dailyTrends: Record<string, number> = {};
+      const recentComplaints = complaints.filter(c => new Date(c.createdAt) >= thirtyDaysAgo);
+      
+      recentComplaints.forEach(c => {
+        const date = new Date(c.createdAt).toISOString().split('T')[0];
+        dailyTrends[date] = (dailyTrends[date] || 0) + 1;
+      });
+
+      const resolvedComplaints = complaints.filter(c => 
+        c.status === 'Resolved' || c.status === 'Closed'
+      );
+      
+      const avgResolutionTime = resolvedComplaints.length > 0
+        ? resolvedComplaints.reduce((sum, c) => {
+            const created = new Date(c.createdAt).getTime();
+            const updated = new Date(c.updatedAt).getTime();
+            return sum + (updated - created);
+          }, 0) / resolvedComplaints.length / (1000 * 60 * 60)
+        : 0;
+
+      res.json({
+        dailyTrends: Object.entries(dailyTrends)
+          .map(([date, count]) => ({ date, count }))
+          .sort((a, b) => a.date.localeCompare(b.date)),
+        avgResolutionTimeHours: Math.round(avgResolutionTime * 10) / 10,
+        totalThisMonth: recentComplaints.length,
+        resolvedThisMonth: recentComplaints.filter(c => 
+          c.status === 'Resolved' || c.status === 'Closed'
+        ).length,
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to generate trends report" });
     }
   });
 
