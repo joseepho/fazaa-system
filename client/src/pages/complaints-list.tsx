@@ -26,16 +26,25 @@ import {
   X,
   ChevronLeft,
   ChevronRight,
+  User,
+  MessageSquare,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Complaint } from "@shared/schema";
+import type { Complaint, TeamMember } from "@shared/schema";
 import {
   complaintSources,
   complaintTypes,
   complaintStatuses,
 } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const statusColors: Record<string, string> = {
   New: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -47,11 +56,47 @@ const statusColors: Record<string, string> = {
   Rejected: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+const statusTranslations: Record<string, string> = {
+  New: "جديد",
+  "Under Review": "قيد المراجعة",
+  Transferred: "محولة",
+  "Pending Customer": "بانتظار العميل",
+  Resolved: "تم الحل",
+  Closed: "مغلقة",
+  Rejected: "مرفوضة",
+};
+
 const severityColors: Record<string, string> = {
   Normal: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   Medium: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
   High: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   Urgent: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const severityTranslations: Record<string, string> = {
+  Normal: "عادي",
+  Medium: "متوسط",
+  High: "مرتفع",
+  Urgent: "عاجل",
+};
+
+const sourceTranslations: Record<string, string> = {
+  "Call Center": "مركز الاتصال",
+  "Email": "البريد الإلكتروني",
+  "Website": "موقع فزاع برو",
+  "Mobile App": "شكاوي صفحات التطبيق",
+  "Social Media": "وسائل التواصل الاجتماعي",
+  "Walk-in": "زيارة شخصية",
+  "App Support": "دعم التطبيق",
+};
+
+const typeTranslations: Record<string, string> = {
+  "Technical": "فني",
+  "Service": "خدمة",
+  "Billing": "فواتير",
+  "Product": "منتج",
+  "Staff": "موظفين",
+  "Other": "أخرى",
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -63,10 +108,27 @@ export default function ComplaintsList() {
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [currentPage, setCurrentPage] = useState(1);
+  const { user } = useAuth();
 
   const { data: complaints, isLoading } = useQuery<Complaint[]>({
     queryKey: ["/api/complaints"],
   });
+
+  const { data: teamMembers, isLoading: isLoadingMembers } = useQuery<TeamMember[]>({
+    queryKey: ["/api/team-members"],
+  });
+
+  const getAssigneeName = (id: number | null) => {
+    if (!id) return "غير معين";
+    if (isLoadingMembers) return "...";
+    return teamMembers?.find(m => m.id === id)?.name || "غير معروف";
+  };
+
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    if (user.role === "Admin") return true;
+    return user.permissions?.includes(permission) || false;
+  };
 
   const filteredComplaints =
     complaints?.filter((complaint) => {
@@ -75,6 +137,7 @@ export default function ComplaintsList() {
         complaint.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         complaint.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (complaint.customerName || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (complaint.orderNumber || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
         String(complaint.id).includes(searchQuery);
 
       const matchesSource =
@@ -102,8 +165,8 @@ export default function ComplaintsList() {
     setCurrentPage(1);
   };
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+  const formatDate = (date: string | Date) => {
+    return new Date(date).toLocaleDateString("ar-EG", {
       year: "numeric",
       month: "short",
       day: "numeric",
@@ -114,17 +177,19 @@ export default function ComplaintsList() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold" data-testid="text-complaints-list-title">Complaints</h1>
+          <h1 className="text-3xl font-bold" data-testid="text-complaints-list-title">الشكاوى</h1>
           <p className="text-muted-foreground mt-1">
-            Manage and track all customer complaints
+            إدارة وتتبع جميع شكاوى العملاء
           </p>
         </div>
-        <Link href="/complaints/new">
-          <Button className="w-full sm:w-auto" data-testid="button-add-complaint">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Complaint
-          </Button>
-        </Link>
+        {hasPermission("create_complaint") && (
+          <Link href="/complaints/new">
+            <Button className="w-full sm:w-auto" data-testid="button-add-complaint">
+              <Plus className="w-4 h-4 mr-2" />
+              إضافة شكوى
+            </Button>
+          </Link>
+        )}
       </div>
 
       <Card>
@@ -133,7 +198,7 @@ export default function ComplaintsList() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search by title, description, customer, or ID..."
+                placeholder="البحث بالعنوان، الوصف، العميل، رقم الطلب، أو المعرف..."
                 value={searchQuery}
                 onChange={(e) => {
                   setSearchQuery(e.target.value);
@@ -153,13 +218,13 @@ export default function ComplaintsList() {
               >
                 <SelectTrigger className="w-[140px]" data-testid="select-source-filter">
                   <Filter className="w-4 h-4 mr-2" />
-                  <SelectValue placeholder="Source" />
+                  <SelectValue placeholder="المصدر" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Sources</SelectItem>
+                  <SelectItem value="all">كل المصادر</SelectItem>
                   {complaintSources.map((source) => (
                     <SelectItem key={source} value={source}>
-                      {source}
+                      {sourceTranslations[source] || source}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -173,13 +238,13 @@ export default function ComplaintsList() {
                 }}
               >
                 <SelectTrigger className="w-[130px]" data-testid="select-type-filter">
-                  <SelectValue placeholder="Type" />
+                  <SelectValue placeholder="النوع" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="all">كل الأنواع</SelectItem>
                   {complaintTypes.map((type) => (
                     <SelectItem key={type} value={type}>
-                      {type}
+                      {typeTranslations[type] || type}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -193,13 +258,13 @@ export default function ComplaintsList() {
                 }}
               >
                 <SelectTrigger className="w-[150px]" data-testid="select-status-filter">
-                  <SelectValue placeholder="Status" />
+                  <SelectValue placeholder="الحالة" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="all">كل الحالات</SelectItem>
                   {complaintStatuses.map((status) => (
                     <SelectItem key={status} value={status}>
-                      {status}
+                      {statusTranslations[status] || status}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -228,17 +293,17 @@ export default function ComplaintsList() {
           ) : filteredComplaints.length === 0 ? (
             <div className="py-16 text-center text-muted-foreground">
               <FileText className="w-16 h-16 mx-auto mb-4 opacity-30" />
-              <p className="text-lg font-medium">No complaints found</p>
+              <p className="text-lg font-medium">لم يتم العثور على شكاوى</p>
               <p className="text-sm mt-1">
                 {searchQuery || hasActiveFilters
-                  ? "Try adjusting your search or filters"
-                  : "Add your first complaint to get started"}
+                  ? "حاول تعديل البحث أو الفلاتر"
+                  : "أضف شكواك الأولى للبدء"}
               </p>
-              {!searchQuery && !hasActiveFilters && (
+              {!searchQuery && !hasActiveFilters && hasPermission("create_complaint") && (
                 <Link href="/complaints/new">
                   <Button className="mt-4" data-testid="button-add-first-complaint">
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Complaint
+                    إضافة شكوى
                   </Button>
                 </Link>
               )}
@@ -249,13 +314,15 @@ export default function ComplaintsList() {
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
-                      <TableHead className="font-semibold">ID</TableHead>
-                      <TableHead className="font-semibold">Title</TableHead>
-                      <TableHead className="font-semibold">Source</TableHead>
-                      <TableHead className="font-semibold">Type</TableHead>
-                      <TableHead className="font-semibold">Severity</TableHead>
-                      <TableHead className="font-semibold">Status</TableHead>
-                      <TableHead className="font-semibold">Date</TableHead>
+                      <TableHead className="font-semibold text-right">المعرف</TableHead>
+                      <TableHead className="font-semibold text-right">رقم الطلب</TableHead>
+                      <TableHead className="font-semibold text-right">العنوان</TableHead>
+                      <TableHead className="font-semibold text-right">المصدر</TableHead>
+                      <TableHead className="font-semibold text-right">النوع</TableHead>
+                      <TableHead className="font-semibold text-right">الأهمية</TableHead>
+                      <TableHead className="font-semibold text-right">الحالة</TableHead>
+                      <TableHead className="font-semibold text-right">المنفذ</TableHead>
+                      <TableHead className="font-semibold text-right">التاريخ</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -269,26 +336,66 @@ export default function ComplaintsList() {
                         <TableCell className="font-mono text-xs">
                           #{complaint.id}
                         </TableCell>
+                        <TableCell className="font-mono text-xs">
+                          {complaint.orderNumber || "-"}
+                        </TableCell>
                         <TableCell className="max-w-[200px] truncate font-medium">
                           {complaint.title}
                         </TableCell>
-                        <TableCell>{complaint.source}</TableCell>
-                        <TableCell>{complaint.type}</TableCell>
+                        <TableCell>{sourceTranslations[complaint.source] || complaint.source}</TableCell>
+                        <TableCell>{typeTranslations[complaint.type] || complaint.type}</TableCell>
                         <TableCell>
                           <Badge
                             variant="outline"
                             className={severityColors[complaint.severity]}
                           >
-                            {complaint.severity}
+                            {severityTranslations[complaint.severity] || complaint.severity}
                           </Badge>
                         </TableCell>
                         <TableCell>
                           <Badge className={statusColors[complaint.status]}>
-                            {complaint.status}
+                            {statusTranslations[complaint.status] || complaint.status}
                           </Badge>
                         </TableCell>
+                        <TableCell>
+                          {complaint.createdBy ? (
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  <div className="flex items-center gap-2">
+                                    <div className="bg-primary/10 p-1 rounded-full">
+                                      <User className="w-4 h-4 text-primary" />
+                                    </div>
+                                    <span className="text-sm">{getAssigneeName(complaint.createdBy)}</span>
+                                  </div>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  <p>تم الإنشاء بواسطة: {getAssigneeName(complaint.createdBy)}</p>
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
+                          ) : (
+                            <span className="text-muted-foreground text-xs">نظام/خارجي</span>
+                          )}
+                        </TableCell>
                         <TableCell className="text-muted-foreground">
-                          {formatDate(complaint.createdAt)}
+                          <div className="flex items-center gap-2">
+                            {formatDate(complaint.createdAt)}
+                            {(complaint as any).notesCount > 0 && (
+                              <TooltipProvider>
+                                <Tooltip>
+                                  <TooltipTrigger>
+                                    <div className="bg-blue-100 dark:bg-blue-900/30 p-1 rounded-full animate-pulse">
+                                      <MessageSquare className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                                    </div>
+                                  </TooltipTrigger>
+                                  <TooltipContent>
+                                    <p>يوجد {(complaint as any).notesCount} ملاحظات</p>
+                                  </TooltipContent>
+                                </Tooltip>
+                              </TooltipProvider>
+                            )}
+                          </div>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -299,9 +406,9 @@ export default function ComplaintsList() {
               {totalPages > 1 && (
                 <div className="flex items-center justify-between mt-4 px-2">
                   <p className="text-sm text-muted-foreground">
-                    Showing {(currentPage - 1) * ITEMS_PER_PAGE + 1} to{" "}
+                    عرض {(currentPage - 1) * ITEMS_PER_PAGE + 1} إلى{" "}
                     {Math.min(currentPage * ITEMS_PER_PAGE, filteredComplaints.length)}{" "}
-                    of {filteredComplaints.length} complaints
+                    من {filteredComplaints.length} شكوى
                   </p>
                   <div className="flex items-center gap-2">
                     <Button
@@ -311,10 +418,10 @@ export default function ComplaintsList() {
                       disabled={currentPage === 1}
                       data-testid="button-prev-page"
                     >
-                      <ChevronLeft className="w-4 h-4" />
+                      <ChevronRight className="w-4 h-4" />
                     </Button>
                     <span className="text-sm font-medium px-2">
-                      Page {currentPage} of {totalPages}
+                      صفحة {currentPage} من {totalPages}
                     </span>
                     <Button
                       variant="outline"
@@ -323,7 +430,7 @@ export default function ComplaintsList() {
                       disabled={currentPage === totalPages}
                       data-testid="button-next-page"
                     >
-                      <ChevronRight className="w-4 h-4" />
+                      <ChevronLeft className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>

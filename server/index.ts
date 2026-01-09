@@ -22,6 +22,43 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Security & Performance Middleware
+import helmet from "helmet";
+import compression from "compression";
+import rateLimit from "express-rate-limit";
+
+// Enable Gzip compression
+app.use(compression());
+
+// Set security headers
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"], // unsafe-eval needed for some dev tools/libraries
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
+        imgSrc: ["'self'", "data:", "https://grainy-gradients.vercel.app"], // Allow external images used in dashboard
+        connectSrc: ["'self'", "ws:", "wss:"], // Allow WebSocket connections
+      },
+    },
+    crossOriginEmbedderPolicy: false,
+  })
+);
+
+// Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 1000, // Limit each IP to 1000 requests per windowMs
+  message: "Too many requests from this IP, please try again later.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to API routes only
+app.use("/api", limiter);
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -59,7 +96,12 @@ app.use((req, res, next) => {
   next();
 });
 
+import { setupAuth } from "./auth";
+import { setupWebSocket } from "./ws";
+
 (async () => {
+  await setupAuth(app);
+  setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -89,7 +131,6 @@ app.use((req, res, next) => {
     {
       port,
       host: "0.0.0.0",
-      reusePort: true,
     },
     () => {
       log(`serving on port ${port}`);

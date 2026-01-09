@@ -13,33 +13,57 @@ import {
   FileText,
   Plus,
   BarChart3,
+  Settings,
+  LogOut,
+  Users,
+  Star,
 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/use-auth";
 
 const menuItems = [
   {
-    title: "Dashboard",
+    title: "لوحة التحكم",
     url: "/",
     icon: LayoutDashboard,
+    permission: "view_dashboard",
   },
   {
-    title: "Complaints",
+    title: "الشكاوى",
     url: "/complaints",
     icon: FileText,
+    permission: "view_complaints",
   },
   {
-    title: "Add Complaint",
+    title: "إضافة شكوى",
     url: "/complaints/new",
     icon: Plus,
+    permission: "create_complaint",
   },
   {
-    title: "Reports",
+    title: "التقارير",
     url: "/reports",
     icon: BarChart3,
+    permission: "view_reports",
+  },
+  {
+    title: "تقييمات الفنيين",
+    url: "/evaluations",
+    icon: Star,
+    permission: "view_evaluations_page",
+  },
+
+  {
+    title: "الإعدادات",
+    url: "/settings",
+    icon: Settings,
+    permission: "view_settings",
   },
 ];
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user, logoutMutation } = useAuth();
 
   const isActive = (url: string) => {
     if (url === "/") {
@@ -48,23 +72,38 @@ export function AppSidebar() {
     return location.startsWith(url);
   };
 
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    if (user.role === "Admin") return true;
+    return user.permissions?.includes(permission) || false;
+  };
+
+  const filteredMenuItems = menuItems.filter(item => {
+    if (item.url === "/evaluations") {
+      // Allow if explicit page view permission OR legacy data view permissions are present
+      // Checked: 'Technician List' (view_technicians) permission grants access
+      return hasPermission("view_evaluations_page") ||
+        hasPermission("view_evaluations") ||
+        hasPermission("view_technicians");
+    }
+    return hasPermission(item.permission);
+  });
+
   return (
-    <Sidebar className="border-r-0">
+    <Sidebar className="border-r-0" side="right">
       <div className="absolute inset-0 bg-gradient-to-b from-[#0066CC] to-[#0055AA]" />
       <SidebarHeader className="relative z-10 h-16 flex items-center justify-center border-b border-white/10">
         <Link href="/" className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg bg-white/20 flex items-center justify-center">
-            <span className="text-white font-bold text-lg">F</span>
-          </div>
+          <img src="/logo.png" alt="Fazaa Pro Logo" className="w-10 h-10 object-contain" />
           <div className="flex flex-col">
-            <span className="text-white font-bold text-lg leading-tight">Fazzaa Pro</span>
-            <span className="text-white/60 text-xs leading-tight">فزّاع برو</span>
+            <span className="text-white font-bold text-lg leading-tight">فزاع برو</span>
+            <span className="text-white/60 text-xs leading-tight">نظام إدارة الشكاوى</span>
           </div>
         </Link>
       </SidebarHeader>
       <SidebarContent className="relative z-10 py-4">
         <SidebarMenu>
-          {menuItems.map((item) => (
+          {filteredMenuItems.map((item) => (
             <SidebarMenuItem key={item.title} className="px-3">
               <SidebarMenuButton
                 asChild
@@ -86,8 +125,17 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarContent>
       <SidebarFooter className="relative z-10 p-4 border-t border-white/10">
-        <div className="text-white/50 text-xs text-center">
-          Complaint Management System
+        <Button
+          variant="ghost"
+          className="w-full justify-start gap-3 text-white/80 hover:bg-white/10 hover:text-white"
+          onClick={() => logoutMutation.mutate()}
+          data-testid="button-logout"
+        >
+          <LogOut className="w-5 h-5" />
+          <span>تسجيل الخروج</span>
+        </Button>
+        <div className="text-white/50 text-xs text-center mt-4">
+          نظام إدارة الشكاوى
         </div>
       </SidebarFooter>
     </Sidebar>

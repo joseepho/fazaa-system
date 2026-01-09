@@ -8,19 +8,19 @@ export default function NotFound() {
       <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#0066CC] to-[#0099FF] flex items-center justify-center mb-8">
         <FileQuestion className="w-12 h-12 text-white" />
       </div>
-      <h1 className="text-4xl font-bold mb-4" data-testid="text-404-title">Page Not Found</h1>
+      <h1 className="text-4xl font-bold mb-4" data-testid="text-404-title">الصفحة غير موجودة</h1>
       <p className="text-muted-foreground text-lg mb-8 max-w-md">
-        The page you're looking for doesn't exist or has been moved.
+        الصفحة التي تبحث عنها غير موجودة أو تم نقلها.
       </p>
       <div className="flex items-center gap-4">
         <Button variant="outline" onClick={() => window.history.back()} data-testid="button-go-back">
-          <ArrowLeft className="w-4 h-4 mr-2" />
-          Go Back
+          <ArrowLeft className="w-4 h-4 ml-2 rotate-180" />
+          رجوع
         </Button>
         <Link href="/">
           <Button data-testid="button-go-home">
-            <Home className="w-4 h-4 mr-2" />
-            Dashboard
+            <Home className="w-4 h-4 ml-2" />
+            لوحة التحكم
           </Button>
         </Link>
       </div>

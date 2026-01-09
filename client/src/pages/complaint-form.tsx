@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, Save, Upload, X, FileText, Image } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
@@ -36,8 +37,31 @@ import {
 } from "@shared/schema";
 
 export default function ComplaintForm() {
+  const { user } = useAuth();
   const { id } = useParams<{ id?: string }>();
   const isEditing = Boolean(id);
+
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    if (user.role === "Admin") return true;
+    return user.permissions?.includes(permission) || false;
+  };
+
+  if (isEditing && !hasPermission("edit_complaint")) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-muted-foreground">ليس لديك صلاحية لتعديل هذه الشكوى</p>
+      </div>
+    );
+  }
+
+  if (!isEditing && !hasPermission("create_complaint")) {
+    return (
+      <div className="flex items-center justify-center h-full">
+        <p className="text-muted-foreground">ليس لديك صلاحية لإنشاء شكوى جديدة</p>
+      </div>
+    );
+  }
   const [, setLocation] = useLocation();
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -60,6 +84,7 @@ export default function ComplaintForm() {
       customerName: "",
       customerPhone: "",
       location: "",
+      orderNumber: "",
       attachments: [],
     },
   });
@@ -75,6 +100,7 @@ export default function ComplaintForm() {
         customerName: complaint.customerName,
         customerPhone: complaint.customerPhone,
         location: complaint.location,
+        orderNumber: complaint.orderNumber,
         attachments: complaint.attachments,
       });
       setUploadedFiles(complaint.attachments || []);
@@ -93,15 +119,15 @@ export default function ComplaintForm() {
       queryClient.invalidateQueries({ queryKey: ["/api/complaints"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({
-        title: "Success",
-        description: "Complaint created successfully",
+        title: "تم بنجاح",
+        description: "تم إنشاء الشكوى بنجاح",
       });
       setLocation("/complaints");
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to create complaint",
+        title: "خطأ",
+        description: "فشل إنشاء الشكوى",
         variant: "destructive",
       });
     },
@@ -120,15 +146,15 @@ export default function ComplaintForm() {
       queryClient.invalidateQueries({ queryKey: ["/api/complaints", id] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({
-        title: "Success",
-        description: "Complaint updated successfully",
+        title: "تم بنجاح",
+        description: "تم تحديث الشكوى بنجاح",
       });
       setLocation(`/complaints/${id}`);
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to update complaint",
+        title: "خطأ",
+        description: "فشل تحديث الشكوى",
         variant: "destructive",
       });
     },
@@ -162,8 +188,8 @@ export default function ComplaintForm() {
       }
     } catch (error) {
       toast({
-        title: "Upload Error",
-        description: "Failed to upload files",
+        title: "خطأ في التحميل",
+        description: "فشل تحميل الملفات",
         variant: "destructive",
       });
     }
@@ -209,19 +235,19 @@ export default function ComplaintForm() {
         </Button>
         <div>
           <h1 className="text-3xl font-bold" data-testid="text-form-title">
-            {isEditing ? "Edit Complaint" : "New Complaint"}
+            {isEditing ? "تعديل الشكوى" : "شكوى جديدة"}
           </h1>
           <p className="text-muted-foreground mt-1">
             {isEditing
-              ? "Update complaint information"
-              : "Fill in the details to register a new complaint"}
+              ? "تحديث معلومات الشكوى"
+              : "املأ التفاصيل لتسجيل شكوى جديدة"}
           </p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Complaint Details</CardTitle>
+          <CardTitle>تفاصيل الشكوى</CardTitle>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -232,19 +258,21 @@ export default function ComplaintForm() {
                   name="source"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Source</FormLabel>
+                      <FormLabel>المصدر</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-source">
-                            <SelectValue placeholder="Select source" />
+                            <SelectValue placeholder="اختر المصدر" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {complaintSources.map((source) => (
-                            <SelectItem key={source} value={source}>
-                              {source}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="Call Center">مركز الاتصال</SelectItem>
+                          <SelectItem value="Email">البريد الإلكتروني</SelectItem>
+                          <SelectItem value="Website">موقع فزاع برو</SelectItem>
+                          <SelectItem value="Mobile App">شكاوي صفحات التطبيق</SelectItem>
+                          <SelectItem value="Social Media">وسائل التواصل الاجتماعي</SelectItem>
+                          <SelectItem value="Walk-in">زيارة شخصية</SelectItem>
+                          <SelectItem value="App Support">دعم التطبيق</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -257,19 +285,20 @@ export default function ComplaintForm() {
                   name="type"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Type</FormLabel>
+                      <FormLabel>النوع</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-type">
-                            <SelectValue placeholder="Select type" />
+                            <SelectValue placeholder="اختر النوع" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {complaintTypes.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {type}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="Technical">فني</SelectItem>
+                          <SelectItem value="Service">خدمة</SelectItem>
+                          <SelectItem value="Billing">فواتير</SelectItem>
+                          <SelectItem value="Product">منتج</SelectItem>
+                          <SelectItem value="Staff">موظفين</SelectItem>
+                          <SelectItem value="Other">أخرى</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -282,19 +311,18 @@ export default function ComplaintForm() {
                   name="severity"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Severity</FormLabel>
+                      <FormLabel>الأهمية</FormLabel>
                       <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger data-testid="select-severity">
-                            <SelectValue placeholder="Select severity" />
+                            <SelectValue placeholder="اختر الأهمية" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {complaintSeverities.map((severity) => (
-                            <SelectItem key={severity} value={severity}>
-                              {severity}
-                            </SelectItem>
-                          ))}
+                          <SelectItem value="Normal">عادي</SelectItem>
+                          <SelectItem value="Medium">متوسط</SelectItem>
+                          <SelectItem value="High">مرتفع</SelectItem>
+                          <SelectItem value="Urgent">عاجل</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
@@ -308,10 +336,10 @@ export default function ComplaintForm() {
                 name="title"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Title</FormLabel>
+                    <FormLabel>العنوان</FormLabel>
                     <FormControl>
                       <Input
-                        placeholder="Brief summary of the complaint"
+                        placeholder="ملخص موجز للشكوى"
                         {...field}
                         data-testid="input-title"
                       />
@@ -326,10 +354,10 @@ export default function ComplaintForm() {
                 name="description"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Description</FormLabel>
+                    <FormLabel>الوصف</FormLabel>
                     <FormControl>
                       <Textarea
-                        placeholder="Detailed description of the complaint"
+                        placeholder="وصف تفصيلي للشكوى"
                         className="min-h-32 resize-y"
                         {...field}
                         data-testid="input-description"
@@ -346,11 +374,12 @@ export default function ComplaintForm() {
                   name="customerName"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Customer Name</FormLabel>
+                      <FormLabel>اسم العميل</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="Customer's name (optional)"
+                          placeholder="اسم العميل (اختياري)"
                           {...field}
+                          value={field.value || ""}
                           data-testid="input-customer-name"
                         />
                       </FormControl>
@@ -364,13 +393,28 @@ export default function ComplaintForm() {
                   name="customerPhone"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Phone Number</FormLabel>
+                      <FormLabel>رقم الهاتف</FormLabel>
                       <FormControl>
-                        <Input
-                          placeholder="Phone number (optional)"
-                          {...field}
-                          data-testid="input-customer-phone"
-                        />
+                        <div className="relative">
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 border-r pr-2 h-5">
+                            <img
+                              src="https://flagcdn.com/w20/sa.png"
+                              srcSet="https://flagcdn.com/w40/sa.png 2x"
+                              width="20"
+                              height="15"
+                              alt="Saudi Arabia"
+                              className="object-contain"
+                            />
+                            <span className="text-xs text-muted-foreground dir-ltr">+966</span>
+                          </div>
+                          <Input
+                            placeholder="5XXXXXXXX"
+                            className="pl-20 text-left dir-ltr"
+                            {...field}
+                            value={field.value || ""}
+                            data-testid="input-customer-phone"
+                          />
+                        </div>
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -382,12 +426,32 @@ export default function ComplaintForm() {
                   name="location"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Location</FormLabel>
+                      <FormLabel>الموقع</FormLabel>
                       <FormControl>
                         <Input
-                          placeholder="Geographic location (optional)"
+                          placeholder="الموقع الجغرافي (اختياري)"
                           {...field}
+                          value={field.value || ""}
                           data-testid="input-location"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="orderNumber"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>رقم الطلب</FormLabel>
+                      <FormControl>
+                        <Input
+                          placeholder="رقم الطلب (اختياري)"
+                          {...field}
+                          value={field.value || ""}
+                          data-testid="input-order-number"
                         />
                       </FormControl>
                       <FormMessage />
@@ -397,7 +461,7 @@ export default function ComplaintForm() {
               </div>
 
               <div>
-                <FormLabel>Attachments</FormLabel>
+                <FormLabel>المرفقات</FormLabel>
                 <div className="mt-2">
                   <input
                     type="file"
@@ -414,10 +478,10 @@ export default function ComplaintForm() {
                   >
                     <Upload className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
                     <p className="text-sm text-muted-foreground">
-                      Click to upload or drag and drop
+                      انقر للتحميل أو اسحب وأفلت
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">
-                      Images, PDF, DOC (max 10MB each)
+                      صور، PDF، DOC (بحد أقصى 10 ميجابايت لكل ملف)
                     </p>
                   </div>
 
@@ -459,15 +523,15 @@ export default function ComplaintForm() {
                   }
                   data-testid="button-cancel"
                 >
-                  Cancel
+                  إلغاء
                 </Button>
                 <Button type="submit" disabled={isSubmitting} data-testid="button-save">
                   <Save className="w-4 h-4 mr-2" />
                   {isSubmitting
-                    ? "Saving..."
+                    ? "جارٍ الحفظ..."
                     : isEditing
-                    ? "Update Complaint"
-                    : "Save Complaint"}
+                      ? "تحديث الشكوى"
+                      : "حفظ الشكوى"}
                 </Button>
               </div>
             </form>

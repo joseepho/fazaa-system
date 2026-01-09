@@ -43,8 +43,10 @@ import {
   AlertCircle,
   XCircle,
 } from "lucide-react";
-import type { Complaint, Note, ComplaintStatus, StatusChange } from "@shared/schema";
+import type { Complaint, Note, ComplaintStatus, StatusChange, TeamMember } from "@shared/schema";
 import { complaintStatuses } from "@shared/schema";
+import { useAuth } from "@/hooks/use-auth";
+import { EvaluationForm } from "@/components/evaluations/EvaluationForm";
 
 const statusColors: Record<string, string> = {
   New: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300",
@@ -56,11 +58,28 @@ const statusColors: Record<string, string> = {
   Rejected: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300",
 };
 
+const statusTranslations: Record<string, string> = {
+  New: "جديد",
+  "Under Review": "قيد المراجعة",
+  Transferred: "محولة",
+  "Pending Customer": "بانتظار العميل",
+  Resolved: "تم الحل",
+  Closed: "مغلقة",
+  Rejected: "مرفوضة",
+};
+
 const severityColors: Record<string, string> = {
   Normal: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   Medium: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300",
   High: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300",
   Urgent: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
+};
+
+const severityTranslations: Record<string, string> = {
+  Normal: "عادي",
+  Medium: "متوسط",
+  High: "مرتفع",
+  Urgent: "عاجل",
 };
 
 const statusIcons: Record<string, typeof Clock> = {
@@ -93,12 +112,12 @@ function TimelineItem({
       </div>
       <div className="pb-6">
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge className={statusColors[change.fromStatus]}>{change.fromStatus}</Badge>
-          <span className="text-muted-foreground">to</span>
-          <Badge className={statusColors[change.toStatus]}>{change.toStatus}</Badge>
+          <Badge className={statusColors[change.fromStatus]}>{statusTranslations[change.fromStatus] || change.fromStatus}</Badge>
+          <span className="text-muted-foreground">إلى</span>
+          <Badge className={statusColors[change.toStatus]}>{statusTranslations[change.toStatus] || change.toStatus}</Badge>
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          {date.toLocaleDateString("en-US", {
+          {date.toLocaleDateString("ar-EG", {
             month: "short",
             day: "numeric",
             year: "numeric",
@@ -117,6 +136,7 @@ export default function ComplaintDetails() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [noteText, setNoteText] = useState("");
+  const { user } = useAuth();
 
   const { data: complaint, isLoading: complaintLoading } = useQuery<Complaint>({
     queryKey: ["/api/complaints", id],
@@ -130,6 +150,10 @@ export default function ComplaintDetails() {
     queryKey: ["/api/complaints", id, "status-history"],
   });
 
+  const { data: teamMembers } = useQuery<TeamMember[]>({
+    queryKey: ["/api/team-members"],
+  });
+
   const updateStatusMutation = useMutation({
     mutationFn: async (status: ComplaintStatus) => {
       return apiRequest("PUT", `/api/complaints/${id}`, { status });
@@ -140,18 +164,20 @@ export default function ComplaintDetails() {
       queryClient.invalidateQueries({ queryKey: ["/api/complaints", id, "status-history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({
-        title: "Status Updated",
-        description: "Complaint status has been updated",
+        title: "تم تحديث الحالة",
+        description: "تم تحديث حالة الشكوى",
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to update status",
+        title: "خطأ",
+        description: "فشل تحديث الحالة",
         variant: "destructive",
       });
     },
   });
+
+
 
   const addNoteMutation = useMutation({
     mutationFn: async (text: string) => {
@@ -161,14 +187,14 @@ export default function ComplaintDetails() {
       queryClient.invalidateQueries({ queryKey: ["/api/complaints", id, "notes"] });
       setNoteText("");
       toast({
-        title: "Note Added",
-        description: "Internal note has been added",
+        title: "تمت إضافة ملاحظة",
+        description: "تمت إضافة ملاحظة داخلية",
       });
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to add note",
+        title: "خطأ",
+        description: "فشل إضافة ملاحظة",
         variant: "destructive",
       });
     },
@@ -182,22 +208,28 @@ export default function ComplaintDetails() {
       queryClient.invalidateQueries({ queryKey: ["/api/complaints"] });
       queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
       toast({
-        title: "Deleted",
-        description: "Complaint has been deleted",
+        title: "تم الحذف",
+        description: "تم حذف الشكوى",
       });
       setLocation("/complaints");
     },
     onError: () => {
       toast({
-        title: "Error",
-        description: "Failed to delete complaint",
+        title: "خطأ",
+        description: "فشل حذف الشكوى",
         variant: "destructive",
       });
     },
   });
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
+  const hasPermission = (permission: string) => {
+    if (!user) return false;
+    if (user.role === "Admin") return true;
+    return user.permissions?.includes(permission) || false;
+  };
+
+  const formatDate = (date: string | Date) => {
+    return new Date(date).toLocaleDateString("ar-EG", {
       year: "numeric",
       month: "long",
       day: "numeric",
@@ -205,6 +237,8 @@ export default function ComplaintDetails() {
       minute: "2-digit",
     });
   };
+
+  const assignedTechnician = teamMembers?.find(m => m.id === complaint?.assignedTo);
 
   if (complaintLoading) {
     return (
@@ -231,12 +265,12 @@ export default function ComplaintDetails() {
     return (
       <div className="flex flex-col items-center justify-center py-16">
         <FileText className="w-16 h-16 text-muted-foreground/30 mb-4" />
-        <h2 className="text-xl font-semibold">Complaint Not Found</h2>
+        <h2 className="text-xl font-semibold">الشكوى غير موجودة</h2>
         <p className="text-muted-foreground mt-1">
-          The complaint you're looking for doesn't exist
+          الشكوى التي تبحث عنها غير موجودة
         </p>
         <Link href="/complaints">
-          <Button className="mt-4" data-testid="button-back-to-list">Back to Complaints</Button>
+          <Button className="mt-4" data-testid="button-back-to-list">العودة إلى الشكاوى</Button>
         </Link>
       </div>
     );
@@ -257,45 +291,48 @@ export default function ComplaintDetails() {
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold" data-testid="text-complaint-title">{complaint.title}</h1>
-              <Badge className={statusColors[complaint.status]}>{complaint.status}</Badge>
+              <Badge className={statusColors[complaint.status]}>{statusTranslations[complaint.status] || complaint.status}</Badge>
             </div>
-            <p className="text-sm text-muted-foreground font-mono">ID: {complaint.id}</p>
+            <p className="text-sm text-muted-foreground font-mono">المعرف: {complaint.id}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link href={`/complaints/${id}/edit`}>
-            <Button variant="outline" data-testid="button-edit">
-              <Edit className="w-4 h-4 mr-2" />
-              Edit
-            </Button>
-          </Link>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="destructive" data-testid="button-delete">
-                <Trash2 className="w-4 h-4 mr-2" />
-                Delete
+          {hasPermission("edit_complaint") && (
+            <Link href={`/complaints/${id}/edit`}>
+              <Button variant="outline" data-testid="button-edit">
+                <Edit className="w-4 h-4 mr-2" />
+                تعديل
               </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete Complaint?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This action cannot be undone. This will permanently delete the
-                  complaint and all associated notes.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
-                <AlertDialogAction
-                  onClick={() => deleteMutation.mutate()}
-                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  data-testid="button-confirm-delete"
-                >
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+            </Link>
+          )}
+          {hasPermission("delete_complaint") && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="destructive" data-testid="button-delete">
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  حذف
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>هل تريد حذف الشكوى؟</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    لا يمكن التراجع عن هذا الإجراء. سيتم حذف الشكوى وجميع الملاحظات المرتبطة بها بشكل دائم.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel data-testid="button-cancel-delete">إلغاء</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={() => deleteMutation.mutate()}
+                    className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                    data-testid="button-confirm-delete"
+                  >
+                    حذف
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
@@ -303,50 +340,67 @@ export default function ComplaintDetails() {
         <div className="lg:col-span-2 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Complaint Information</CardTitle>
+              <CardTitle>معلومات الشكوى</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="p-4 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Source
+                    المصدر
                   </p>
-                  <p className="font-medium mt-1">{complaint.source}</p>
+                  <p className="font-medium mt-1">
+                    {complaint.source === "Call Center" && "مركز الاتصال"}
+                    {complaint.source === "Email" && "البريد الإلكتروني"}
+                    {complaint.source === "Website" && "موقع فزاع برو"}
+                    {complaint.source === "Mobile App" && "شكاوي صفحات التطبيق"}
+                    {complaint.source === "Social Media" && "وسائل التواصل الاجتماعي"}
+                    {complaint.source === "Walk-in" && "زيارة شخصية"}
+                    {complaint.source === "App Support" && "دعم التطبيق"}
+                    {!["Call Center", "Email", "Website", "Mobile App", "Social Media", "Walk-in", "App Support"].includes(complaint.source) && complaint.source}
+                  </p>
                 </div>
                 <div className="p-4 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Type
+                    النوع
                   </p>
-                  <p className="font-medium mt-1">{complaint.type}</p>
+                  <p className="font-medium mt-1">
+                    {complaint.type === "Technical" && "فني"}
+                    {complaint.type === "Service" && "خدمة"}
+                    {complaint.type === "Billing" && "فواتير"}
+                    {complaint.type === "Product" && "منتج"}
+                    {complaint.type === "Staff" && "موظفين"}
+                    {complaint.type === "Other" && "أخرى"}
+                    {!["Technical", "Service", "Billing", "Product", "Staff", "Other"].includes(complaint.type) && complaint.type}
+                  </p>
                 </div>
                 <div className="p-4 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Severity
+                    الأهمية
                   </p>
                   <Badge variant="outline" className={`mt-1 ${severityColors[complaint.severity]}`}>
-                    {complaint.severity}
+                    {severityTranslations[complaint.severity] || complaint.severity}
                   </Badge>
                 </div>
                 <div className="p-4 bg-muted rounded-lg">
                   <p className="text-xs text-muted-foreground uppercase tracking-wide">
-                    Status
+                    الحالة
                   </p>
                   <Badge className={`mt-1 ${statusColors[complaint.status]}`}>
-                    {complaint.status}
+                    {statusTranslations[complaint.status] || complaint.status}
                   </Badge>
                 </div>
               </div>
 
               <div>
-                <h3 className="font-medium mb-2">Description</h3>
+                <h3 className="font-medium mb-2">الوصف</h3>
                 <p className="text-muted-foreground whitespace-pre-wrap">
                   {complaint.description}
                 </p>
               </div>
 
-              {(complaint.customerName || complaint.customerPhone || complaint.location) && (
+              {(complaint.customerName || complaint.customerPhone || complaint.location || complaint.orderNumber) && (
                 <div className="border-t pt-6">
-                  <h3 className="font-medium mb-4">Customer Information</h3>
+                  <h3 className="font-medium mb-4">معلومات العميل</h3>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     {complaint.customerName && (
                       <div className="flex items-center gap-3">
@@ -354,7 +408,7 @@ export default function ComplaintDetails() {
                           <User className="w-5 h-5 text-primary" />
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Name</p>
+                          <p className="text-xs text-muted-foreground">الاسم</p>
                           <p className="font-medium">{complaint.customerName}</p>
                         </div>
                       </div>
@@ -365,8 +419,8 @@ export default function ComplaintDetails() {
                           <Phone className="w-5 h-5 text-primary" />
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Phone</p>
-                          <p className="font-medium">{complaint.customerPhone}</p>
+                          <p className="text-xs text-muted-foreground">الهاتف</p>
+                          <p className="font-medium dir-ltr text-right">{complaint.customerPhone}</p>
                         </div>
                       </div>
                     )}
@@ -376,8 +430,19 @@ export default function ComplaintDetails() {
                           <MapPin className="w-5 h-5 text-primary" />
                         </div>
                         <div>
-                          <p className="text-xs text-muted-foreground">Location</p>
+                          <p className="text-xs text-muted-foreground">الموقع</p>
                           <p className="font-medium">{complaint.location}</p>
+                        </div>
+                      </div>
+                    )}
+                    {complaint.orderNumber && (
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center">
+                          <FileText className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-muted-foreground">رقم الطلب</p>
+                          <p className="font-medium">{complaint.orderNumber}</p>
                         </div>
                       </div>
                     )}
@@ -388,11 +453,11 @@ export default function ComplaintDetails() {
               <div className="border-t pt-6">
                 <div className="flex items-center gap-3 text-sm text-muted-foreground">
                   <Calendar className="w-4 h-4" />
-                  <span>Created: {formatDate(complaint.createdAt)}</span>
+                  <span>تاريخ الإنشاء: {formatDate(complaint.createdAt)}</span>
                   {complaint.updatedAt !== complaint.createdAt && (
                     <>
                       <span className="mx-1">•</span>
-                      <span>Updated: {formatDate(complaint.updatedAt)}</span>
+                      <span>تاريخ التحديث: {formatDate(complaint.updatedAt)}</span>
                     </>
                   )}
                 </div>
@@ -400,12 +465,39 @@ export default function ComplaintDetails() {
             </CardContent>
           </Card>
 
+          {/* Evaluation Card */}
+          {(complaint.status === "Resolved" || complaint.status === "Closed") && complaint.assignedTo && (
+            <Card className="border-green-500/20 bg-green-500/5">
+              <CardHeader>
+                <CardTitle className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-5 h-5 text-green-600" />
+                    <span>تقييم الخدمة</span>
+                  </div>
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="font-medium">الفني المسؤول: {assignedTechnician?.name || "غير محدد"}</p>
+                    <p className="text-sm text-muted-foreground">كيف كانت تجربتك مع بنسبة لل{assignedTechnician?.name}؟</p>
+                  </div>
+                  <EvaluationForm
+                    complaintId={complaint.id}
+                    technicianId={complaint.assignedTo}
+                    technicianName={assignedTechnician?.name || ""}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           {complaint.attachments && complaint.attachments.length > 0 && (
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Image className="w-5 h-5" />
-                  Attachments ({complaint.attachments.length})
+                  المرفقات ({complaint.attachments.length})
                 </CardTitle>
               </CardHeader>
               <CardContent>
@@ -431,7 +523,7 @@ export default function ComplaintDetails() {
                         </div>
                       )}
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <span className="text-white text-sm">View</span>
+                        <span className="text-white text-sm">عرض</span>
                       </div>
                     </a>
                   ))}
@@ -444,26 +536,28 @@ export default function ComplaintDetails() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <MessageSquare className="w-5 h-5" />
-                Internal Notes
+                ملاحظات داخلية
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex gap-3">
-                <Textarea
-                  value={noteText}
-                  onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Add an internal note..."
-                  className="min-h-20 resize-none"
-                  data-testid="input-note"
-                />
-                <Button
-                  onClick={() => noteText.trim() && addNoteMutation.mutate(noteText.trim())}
-                  disabled={!noteText.trim() || addNoteMutation.isPending}
-                  data-testid="button-add-note"
-                >
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
+              {hasPermission("manage_notes") && (
+                <div className="flex gap-3">
+                  <Textarea
+                    value={noteText}
+                    onChange={(e) => setNoteText(e.target.value)}
+                    placeholder="أضف ملاحظة داخلية..."
+                    className="min-h-20 resize-none"
+                    data-testid="input-note"
+                  />
+                  <Button
+                    onClick={() => noteText.trim() && addNoteMutation.mutate(noteText.trim())}
+                    disabled={!noteText.trim() || addNoteMutation.isPending}
+                    data-testid="button-add-note"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </div>
+              )}
 
               {notesLoading ? (
                 <div className="space-y-3">
@@ -479,17 +573,27 @@ export default function ComplaintDetails() {
                       className="p-4 bg-muted rounded-lg"
                       data-testid={`note-${note.id}`}
                     >
-                      <p className="text-sm">{note.text}</p>
-                      <p className="text-xs text-muted-foreground mt-2">
-                        {formatDate(note.createdAt)}
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center">
+                            <User className="w-3 h-3 text-primary" />
+                          </div>
+                          <span className="text-sm font-medium">
+                            {(note as any).authorName || "مستخدم غير معروف"}
+                          </span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">
+                          {formatDate(note.createdAt)}
+                        </span>
+                      </div>
+                      <p className="text-sm pr-8">{note.text}</p>
                     </div>
                   ))}
                 </div>
               ) : (
                 <div className="text-center py-8 text-muted-foreground">
                   <MessageSquare className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No notes yet</p>
+                  <p className="text-sm">لا توجد ملاحظات حتى الآن</p>
                 </div>
               )}
             </CardContent>
@@ -499,27 +603,34 @@ export default function ComplaintDetails() {
         <div className="space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Update Status</CardTitle>
+              <CardTitle>تحديث الحالة</CardTitle>
             </CardHeader>
-            <CardContent>
-              <Select
-                value={complaint.status}
-                onValueChange={(value) =>
-                  updateStatusMutation.mutate(value as ComplaintStatus)
-                }
-                disabled={updateStatusMutation.isPending}
-              >
-                <SelectTrigger data-testid="select-status">
-                  <SelectValue placeholder="Select status" />
-                </SelectTrigger>
-                <SelectContent>
-                  {complaintStatuses.map((status) => (
-                    <SelectItem key={status} value={status}>
-                      {status}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium">الحالة</label>
+                <Select
+                  value={complaint.status}
+                  onValueChange={(value) =>
+                    updateStatusMutation.mutate(value as ComplaintStatus)
+                  }
+                  disabled={updateStatusMutation.isPending || (!hasPermission("edit_complaint") && !hasPermission("update_status"))}
+                >
+                  <SelectTrigger data-testid="select-status">
+                    <SelectValue placeholder="اختر الحالة" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="New">جديد</SelectItem>
+                    <SelectItem value="Under Review">قيد المراجعة</SelectItem>
+                    <SelectItem value="Transferred">محولة</SelectItem>
+                    <SelectItem value="Pending Customer">بانتظار العميل</SelectItem>
+                    <SelectItem value="Resolved">تم الحل</SelectItem>
+                    <SelectItem value="Closed">مغلقة</SelectItem>
+                    <SelectItem value="Rejected">مرفوضة</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+
             </CardContent>
           </Card>
 
@@ -527,7 +638,7 @@ export default function ComplaintDetails() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Clock className="w-5 h-5" />
-                Status Timeline
+                الجدول الزمني للحالة
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -544,7 +655,7 @@ export default function ComplaintDetails() {
               ) : (
                 <div className="text-center py-6 text-muted-foreground">
                   <Clock className="w-10 h-10 mx-auto mb-2 opacity-30" />
-                  <p className="text-sm">No status changes yet</p>
+                  <p className="text-sm">لا توجد تغييرات في الحالة حتى الآن</p>
                 </div>
               )}
             </CardContent>
