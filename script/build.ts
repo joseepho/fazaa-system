@@ -1,72 +1,41 @@
-import { build as esbuild } from "esbuild";
-import { build as viteBuild } from "vite";
-import { rm, readFile } from "fs/promises";
 
-// server deps to bundle to reduce openat(2) syscalls
-// which helps cold start times
-const allowlist = [
-  "@google/generative-ai",
-  "@neondatabase/serverless",
-  "axios",
-  "connect-pg-simple",
-  "cors",
-  "date-fns",
-  "drizzle-orm",
-  "drizzle-zod",
-  "express",
-  "express-rate-limit",
-  "express-session",
-  "jsonwebtoken",
-  "memorystore",
-  "multer",
-  "nanoid",
-  "nodemailer",
-  "openai",
-  "passport",
-  "passport-local",
-  "stripe",
-  "uuid",
-  "ws",
-  "xlsx",
-  "zod",
-  "zod-validation-error",
-];
+import { build } from "esbuild";
+import path from "path";
+import fs from "fs";
 
-async function buildAll() {
-  await rm("dist", { recursive: true, force: true });
-
-  console.log("building client...");
-  await viteBuild();
-
-  console.log("building server...");
-  const pkg = JSON.parse(await readFile("package.json", "utf-8"));
-  const allDeps = [
-    ...Object.keys(pkg.dependencies || {}),
-    ...Object.keys(pkg.devDependencies || {}),
-  ];
-  const externals = allDeps.filter((dep) => !allowlist.includes(dep));
-
-  // Add better-sqlite3 to externals as it is a native module
-  if (!externals.includes("better-sqlite3")) {
-    externals.push("better-sqlite3");
-  }
-
-  await esbuild({
-    entryPoints: ["server/index.ts"],
-    platform: "node",
-    bundle: true,
-    format: "esm",
-    outfile: "dist/index.js",
-    define: {
-      "process.env.NODE_ENV": '"production"',
-    },
-    minify: true,
-    external: externals,
-    logLevel: "info",
-  });
+// Ensure dist directory exists
+if (fs.existsSync("dist")) {
+  fs.rmSync("dist", { recursive: true, force: true });
 }
+fs.mkdirSync("dist");
 
-buildAll().catch((err) => {
-  console.error(err);
-  process.exit(1);
+// Build Server
+await build({
+  entryPoints: ["server/index.ts"],
+  bundle: true,
+  platform: "node",
+  target: "node20",
+  format: "esm",
+  outdir: "dist",
+  banner: {
+    js: `import { createRequire } from 'module'; const require = createRequire(import.meta.url);`
+  },
+  // Mark all packages in node_modules as external to avoid bundling issues
+  packages: "external",
+});
+
+// Build Client (Vite)
+import { spawn } from "child_process";
+const viteBuild = spawn("npx", ["vite", "build"], {
+  stdio: "inherit",
+  shell: true
+});
+
+viteBuild.on("close", (code) => {
+  if (code === 0) {
+    console.log("✅ Build Complete!");
+  } else {
+    console.error("❌ Build Failed");
+    process.exit(1);
+  }
 });

@@ -289,8 +289,10 @@ export class PostgresStorage implements IStorage {
 
     // Evaluations & Field Technicians - Stubs mostly as PG schema might lag behind SQLite
     async createFieldTechnician(tech: any): Promise<any> { throw new Error("Not implemented in Postgres yet"); }
-    async getFieldTechnicians(): Promise<any[]> { throw new Error("Not implemented in Postgres yet"); }
+    async getFieldTechnicians(supervisorId?: number): Promise<any[]> { throw new Error("Not implemented in Postgres yet"); }
     async getFieldTechnician(id: number): Promise<any> { throw new Error("Not implemented in Postgres yet"); }
+    async deleteFieldTechnician(id: number): Promise<boolean> { throw new Error("Not implemented in Postgres yet"); }
+    async updateFieldTechnicianStatus(id: number, status: string): Promise<any> { throw new Error("Not implemented in Postgres yet"); }
 
     async createDetailedEvaluation(evalData: any): Promise<any> { throw new Error("Not implemented in Postgres yet"); }
     async getDetailedEvaluations(technicianId: number): Promise<any[]> { throw new Error("Not implemented in Postgres yet"); }

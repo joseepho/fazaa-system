@@ -7,6 +7,7 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import {
   LayoutDashboard,
@@ -17,6 +18,7 @@ import {
   LogOut,
   Users,
   Star,
+  ClipboardList,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -52,6 +54,12 @@ const menuItems = [
     icon: Star,
     permission: "view_evaluations_page",
   },
+  {
+    title: "الطلبات",
+    url: "/requests",
+    icon: ClipboardList,
+    permission: "view_requests",
+  },
 
   {
     title: "الإعدادات",
@@ -64,6 +72,7 @@ const menuItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logoutMutation } = useAuth();
+  const { setOpenMobile, isMobile } = useSidebar();
 
   const isActive = (url: string) => {
     if (url === "/") {
@@ -115,7 +124,14 @@ export function AppSidebar() {
                 `}
                 data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
               >
-                <Link href={item.url}>
+                <Link
+                  href={item.url}
+                  onClick={() => {
+                    if (isMobile) {
+                      setOpenMobile(false);
+                    }
+                  }}
+                >
                   <item.icon className="w-5 h-5" />
                   <span>{item.title}</span>
                 </Link>

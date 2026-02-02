@@ -396,23 +396,16 @@ export default function ComplaintForm() {
                       <FormLabel>رقم الهاتف</FormLabel>
                       <FormControl>
                         <div className="relative">
-                          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 border-r pr-2 h-5">
-                            <img
-                              src="https://flagcdn.com/w20/sa.png"
-                              srcSet="https://flagcdn.com/w40/sa.png 2x"
-                              width="20"
-                              height="15"
-                              alt="Saudi Arabia"
-                              className="object-contain"
-                            />
-                            <span className="text-xs text-muted-foreground dir-ltr">+966</span>
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pr-2 border-r border-border h-5">
+                            <span className="text-sm font-medium text-slate-600 dir-ltr">+966</span>
                           </div>
                           <Input
                             placeholder="5XXXXXXXX"
-                            className="pl-20 text-left dir-ltr"
+                            className="pl-24 text-left font-mono"
                             {...field}
                             value={field.value || ""}
                             data-testid="input-customer-phone"
+                            dir="ltr"
                           />
                         </div>
                       </FormControl>

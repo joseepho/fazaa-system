@@ -36,8 +36,25 @@ import {
     Filter,
     ArrowUpDown,
     Percent,
-    Award
+    Award,
+    X,
+    PauseCircle,
+    PlayCircle,
+    Users,
+    UserCheck,
+    Trash2
 } from "lucide-react";
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
     BarChart,
     Bar,
@@ -53,11 +70,15 @@ import {
     PolarRadiusAxis,
     Radar
 } from "recharts";
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { TechnicianDetailsDialog } from "@/components/evaluations/TechnicianDetailsDialog";
 import { AddTechnicianDialog } from "@/components/evaluations/AddTechnicianDialog";
+import { EditTechnicianDialog } from "@/components/evaluations/EditTechnicianDialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface TechnicianStats {
     technicianId: number;
@@ -73,6 +94,9 @@ interface TechnicianStats {
     commitmentRate: number;
     customerSatisfactionRate: number;
     classification: string;
+    status: string;
+    supervisorName: string | null;
+    supervisorId: number | null;
 }
 
 export default function EvaluationsDashboard() {
@@ -82,6 +106,18 @@ export default function EvaluationsDashboard() {
     const [selectedTechnician, setSelectedTechnician] = useState<{ id: number, name: string } | null>(null);
     const [detailsOpen, setDetailsOpen] = useState(false);
     const { user } = useAuth();
+
+    const [adminSupervisorFilter, setAdminSupervisorFilter] = useState("all");
+
+    // Default to "my" for supervisors, "all" for others
+    const [supervisorFilter, setSupervisorFilter] = useState(user?.role === "Supervisor" ? "my" : "all");
+
+    // Update filter when user loads (e.g. on refresh)
+    useEffect(() => {
+        if (user?.role === "Supervisor") {
+            setSupervisorFilter("my");
+        }
+    }, [user?.role]);
 
     const hasPermission = (permission: string) => {
         if (!user) return false;
@@ -105,13 +141,88 @@ export default function EvaluationsDashboard() {
         queryKey: ["/api/evaluations/stats"],
     });
 
+    const { data: supervisors } = useQuery<any[]>({
+        queryKey: ["/api/users/supervisors"],
+        enabled: user?.role === "Admin",
+    });
+
+    const queryClient = useQueryClient();
+    const { toast } = useToast();
+
+    const deleteMutation = useMutation({
+        mutationFn: async (id: number) => {
+            const res = await apiRequest("DELETE", `/api/field-technicians/${id}`);
+            return res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/evaluations/stats"] });
+            toast({ title: "تم حذف الفني بنجاح" });
+        },
+        onError: (error: any) => {
+            toast({
+                title: "خطأ في الحذف",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
+    const statusMutation = useMutation({
+        mutationFn: async ({ id, status }: { id: number, status: string }) => {
+            const res = await apiRequest("PATCH", `/api/field-technicians/${id}/status`, { status });
+            return res.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ["/api/evaluations/stats"] });
+            toast({ title: "تم تحديث حالة الفني بنجاح" });
+        },
+        onError: (error: any) => {
+            toast({
+                title: "خطأ في التحديث",
+                description: error.message,
+                variant: "destructive",
+            });
+        },
+    });
+
     // Ensure stats is not undefined for following calculations
     const safeStats = stats || [];
+
+    // Check for URL params to open details automatically
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const techIdStr = params.get("techId");
+        if (techIdStr && safeStats.length > 0) {
+            const techId = parseInt(techIdStr, 10);
+            const tech = safeStats.find(t => t.technicianId === techId);
+            if (tech) {
+                setSelectedTechnician({ id: tech.technicianId, name: tech.technicianName });
+                setDetailsOpen(true);
+            }
+        }
+    }, [stats]);
 
     const filteredStats = safeStats.filter(tech => {
         const matchesSearch = tech.technicianName.toLowerCase().includes(searchTerm.toLowerCase());
         const matchesSpec = specializationFilter === "All" || tech.specialization === specializationFilter;
-        return matchesSearch && matchesSpec;
+
+        // Supervisor Filter (for Supervisors)
+        let matchesSupervisor = true;
+        if (user?.role === "Supervisor" && supervisorFilter === "my") {
+            matchesSupervisor = tech.supervisorId === user.id;
+        }
+
+        // Admin Filter (for Admins)
+        if (user?.role === "Admin" && adminSupervisorFilter !== "all") {
+            matchesSupervisor = tech.supervisorId?.toString() === adminSupervisorFilter;
+        }
+
+        // Hide suspended technicians from Supervisors
+        if (user?.role === "Supervisor" && tech.status === "Suspended") {
+            return false;
+        }
+
+        return matchesSearch && matchesSpec && matchesSupervisor;
     }).sort((a, b) => {
         if (sortBy === "rating") return b.avgOverall - a.avgOverall;
         if (sortBy === "evaluations") return b.totalEvaluations - a.totalEvaluations;
@@ -134,7 +245,7 @@ export default function EvaluationsDashboard() {
         evaluations: tech.totalEvaluations
     }));
 
-    const specializations = [
+    const baseSpecializations = [
         { id: "All", label: "الكل", icon: Filter, color: "bg-slate-100 text-slate-600" },
         { id: "Electrical", label: "كهرباء", icon: Zap, color: "bg-yellow-100 text-yellow-700" },
         { id: "Plumbing", label: "سباكة", icon: Droplets, color: "bg-blue-100 text-blue-700" },
@@ -144,6 +255,36 @@ export default function EvaluationsDashboard() {
         { id: "Cleaning", label: "نظافة", icon: Sparkles, color: "bg-emerald-100 text-emerald-700" },
         { id: "General", label: "عام", icon: Wrench, color: "bg-gray-100 text-gray-700" },
     ];
+
+    const specializations = useMemo(() => {
+        const specs = [...baseSpecializations];
+        const existingIds = new Set(specs.map(s => s.id));
+
+        safeStats.forEach(tech => {
+            // Trim whitespace just in case
+            const specId = tech.specialization.trim();
+            if (!existingIds.has(specId)) {
+                // Determine details for new spec
+                // If it contains comma, it's a multi-spec
+                const isMulti = specId.includes(",");
+                const label = isMulti
+                    ? specId.split(",").map(s => {
+                        const base = baseSpecializations.find(b => b.id === s.trim());
+                        return base ? base.label : s.trim();
+                    }).join(" + ")
+                    : specId;
+
+                specs.push({
+                    id: specId,
+                    label: label,
+                    icon: isMulti ? Users : HelpCircle, // Use Users icon for multi-spec, Help for unknown single
+                    color: "bg-indigo-100 text-indigo-700" // Default color for custom specs
+                });
+                existingIds.add(specId);
+            }
+        });
+        return specs;
+    }, [safeStats]);
 
     const getSpecIcon = (specId: string) => {
         const spec = specializations.find(s => s.id === specId);
@@ -352,6 +493,43 @@ export default function EvaluationsDashboard() {
                 </Card>
             </div>
 
+            {/* Supervisor Filter Toggle */}
+            {user?.role === "Supervisor" && (
+                <div className="flex bg-white p-1 rounded-lg w-fit border border-slate-200">
+                    <button
+                        onClick={() => setSupervisorFilter("my")}
+                        className={`px-4 py-2 text-sm rounded-md transition-all font-medium flex items-center gap-2 ${supervisorFilter === "my" ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}
+                    >
+                        <UserCheck className="w-4 h-4" />
+                        الفنيين التابعين لي
+                    </button>
+                    <button
+                        onClick={() => setSupervisorFilter("all")}
+                        className={`px-4 py-2 text-sm rounded-md transition-all font-medium flex items-center gap-2 ${supervisorFilter === "all" ? "bg-primary text-white shadow-sm" : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"}`}
+                    >
+                        <User className="w-4 h-4" />
+                        كل الفنيين
+                    </button>
+                </div>
+            )}
+
+            {/* Admin Supervisor Filter */}
+            {user?.role === "Admin" && supervisors && (
+                <div className="w-[250px]">
+                    <Select value={adminSupervisorFilter} onValueChange={setAdminSupervisorFilter}>
+                        <SelectTrigger className="bg-white border-slate-200">
+                            <SelectValue placeholder="تصفية حسب المشرف" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="all">كل المشرفين</SelectItem>
+                            {supervisors.map(s => (
+                                <SelectItem key={s.id} value={s.id.toString()}>{s.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+
             {/* Specialization Filters */}
             <div className="flex overflow-x-auto pb-4 gap-3 no-scrollbar">
                 {specializations.map((spec) => (
@@ -380,15 +558,38 @@ export default function EvaluationsDashboard() {
             >
                 {filteredStats.map((tech) => (
                     <motion.div key={tech.technicianId} variants={item}>
-                        <Card className="hover:shadow-lg transition-all duration-300 border-slate-200 overflow-hidden group">
+                        <Card className={`hover:shadow-lg transition-all duration-300 border-slate-200 overflow-hidden group 
+                            ${user?.role === "Supervisor" && tech.supervisorId !== user.id ? "opacity-80 border-red-100" : ""}
+                            ${tech.status === "Suspended" ? "grayscale opacity-60" : ""}
+                        `}>
+                            {/* Warning Bar for Other Supervisors */}
+                            {user?.role === "Supervisor" && tech.supervisorId !== user.id && (
+                                <div className="bg-red-500 text-white text-xs py-1 px-3 flex items-center justify-center gap-1 font-bold animate-pulse">
+                                    <AlertCircle className="w-3 h-3" />
+                                    هذا الفني يتبع لمشرف آخر ({tech.supervisorName || "غير محدد"})
+                                </div>
+                            )}
+
                             <CardHeader className="pb-4 border-b border-slate-100 bg-slate-50/50">
                                 <div className="flex justify-between items-start">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center border-2 border-white shadow-sm">
-                                            <User className="h-6 w-6 text-primary" />
+                                        <div className={`h-12 w-12 rounded-full flex items-center justify-center border-2 border-white shadow-sm ${user?.role === "Supervisor" && tech.supervisorId !== user.id
+                                            ? "bg-red-100"
+                                            : "bg-primary/10"
+                                            }`}>
+                                            <User className={`h-6 w-6 ${user?.role === "Supervisor" && tech.supervisorId !== user.id
+                                                ? "text-red-500"
+                                                : "text-primary"
+                                                }`} />
                                         </div>
                                         <div>
                                             <CardTitle className="text-lg font-bold text-slate-800">{tech.technicianName}</CardTitle>
+                                            {tech.supervisorName && (
+                                                <div className="flex items-center gap-1 mt-0.5 text-xs text-slate-500">
+                                                    <UserCheck className="w-3 h-3" />
+                                                    <span>تابع لمشرف: {tech.supervisorName}</span>
+                                                </div>
+                                            )}
                                             <div className="flex items-center gap-2 mt-1 flex-wrap">
                                                 <Badge variant="secondary" className={`text-xs font-normal gap-1 ${getSpecColor(tech.specialization)} border-none`}>
                                                     {(() => {
@@ -397,99 +598,162 @@ export default function EvaluationsDashboard() {
                                                     })()}
                                                     {getSpecLabel(tech.specialization)}
                                                 </Badge>
-                                                <Badge variant="outline" className={`text-xs ${tech.classification === "ممتاز" ? "border-emerald-200 text-emerald-700 bg-emerald-50" :
-                                                    tech.classification === "جيد جداً" ? "border-blue-200 text-blue-700 bg-blue-50" :
-                                                        tech.classification === "يحتاج تحسين" ? "border-amber-200 text-amber-700 bg-amber-50" :
-                                                            "border-slate-200 text-slate-600"
-                                                    }`}>
-                                                    {tech.classification}
-                                                </Badge>
+                                                {(user?.role !== "Supervisor" || tech.supervisorId === user.id) && (
+                                                    <Badge variant="outline" className={`text-xs ${tech.classification === "ممتاز" ? "border-emerald-200 text-emerald-700 bg-emerald-50" :
+                                                        tech.classification === "جيد جداً" ? "border-blue-200 text-blue-700 bg-blue-50" :
+                                                            tech.classification === "يحتاج تحسين" ? "border-amber-200 text-amber-700 bg-amber-50" :
+                                                                "border-slate-200 text-slate-600"
+                                                        }`}>
+                                                        {tech.classification}
+                                                    </Badge>
+                                                )}
                                             </div>
-                                            <div className="flex items-center gap-1 mt-1">
-                                                <span className="text-slate-400 text-xs text-xs">{tech.totalEvaluations} تقييم</span>
-                                            </div>
+                                            {(user?.role !== "Supervisor" || tech.supervisorId === user.id) && (
+                                                <div className="flex items-center gap-1 mt-1">
+                                                    <span className="text-slate-400 text-xs text-xs">{tech.totalEvaluations} تقييم</span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex flex-col items-end">
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-bold text-slate-800">{tech.avgOverall.toFixed(1)}</span>
-                                            <span className="text-sm text-slate-400">/5</span>
+                                    {(user?.role !== "Supervisor" || tech.supervisorId === user.id) && (
+                                        <div className="flex flex-col items-end">
+                                            <div className="flex items-baseline gap-1">
+                                                <span className="text-2xl font-bold text-slate-800">{tech.avgOverall.toFixed(1)}</span>
+                                                <span className="text-sm text-slate-400">/5</span>
+                                            </div>
+                                            <div className="flex gap-0.5 mt-1">
+                                                {[1, 2, 3, 4, 5].map((star) => (
+                                                    <Star
+                                                        key={star}
+                                                        className={`h-3 w-3 ${star <= Math.round(tech.avgOverall)
+                                                            ? "text-yellow-400 fill-yellow-400"
+                                                            : "text-slate-200 fill-slate-200"
+                                                            }`}
+                                                    />
+                                                ))}
+                                            </div>
                                         </div>
-                                        <div className="flex gap-0.5 mt-1">
-                                            {[1, 2, 3, 4, 5].map((star) => (
-                                                <Star
-                                                    key={star}
-                                                    className={`h-3 w-3 ${star <= Math.round(tech.avgOverall)
-                                                        ? "text-yellow-400 fill-yellow-400"
-                                                        : "text-slate-200 fill-slate-200"
-                                                        }`}
-                                                />
-                                            ))}
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
                             </CardHeader>
                             <CardContent className="p-6 space-y-4">
-                                <div className="space-y-3">
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-slate-600">الالتزام بالمواعيد</span>
-                                            <span className="font-medium text-slate-900">{tech.avgPunctuality.toFixed(1)}</span>
-                                        </div>
-                                        <Progress value={(tech.avgPunctuality / 5) * 100} className="h-2 bg-slate-100" />
-                                    </div>
+                                {(user?.role !== "Supervisor" || tech.supervisorId === user.id) && (
+                                    <>
+                                        <div className="space-y-3">
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-slate-600">الالتزام بالمواعيد</span>
+                                                    <span className="font-medium text-slate-900">{tech.avgPunctuality.toFixed(1)}</span>
+                                                </div>
+                                                <Progress value={(tech.avgPunctuality / 5) * 100} className="h-2 bg-slate-100" />
+                                            </div>
 
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-slate-600">جودة العمل</span>
-                                            <span className="font-medium text-slate-900">{tech.avgQuality.toFixed(1)}</span>
-                                        </div>
-                                        <Progress value={(tech.avgQuality / 5) * 100} className="h-2 bg-slate-100" />
-                                    </div>
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-slate-600">جودة العمل</span>
+                                                    <span className="font-medium text-slate-900">{tech.avgQuality.toFixed(1)}</span>
+                                                </div>
+                                                <Progress value={(tech.avgQuality / 5) * 100} className="h-2 bg-slate-100" />
+                                            </div>
 
-                                    <div className="space-y-1">
-                                        <div className="flex justify-between text-sm">
-                                            <span className="text-slate-600">السلوك والمظهر</span>
-                                            <span className="font-medium text-slate-900">{tech.avgBehavior.toFixed(1)}</span>
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between text-sm">
+                                                    <span className="text-slate-600">السلوك والمظهر</span>
+                                                    <span className="font-medium text-slate-900">{tech.avgBehavior.toFixed(1)}</span>
+                                                </div>
+                                                <Progress value={(tech.avgBehavior / 5) * 100} className="h-2 bg-slate-100" />
+                                            </div>
                                         </div>
-                                        <Progress value={(tech.avgBehavior / 5) * 100} className="h-2 bg-slate-100" />
-                                    </div>
-                                </div>
 
-                                {/* Advanced Metrics */}
-                                <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-50">
-                                    <div className="bg-slate-50 p-2 rounded-lg text-center">
-                                        <div className="flex items-center justify-center gap-1 text-slate-500 text-xs mb-1">
-                                            <Percent className="w-3 h-3" />
-                                            <span>نسبة الرضا</span>
+                                        {/* Advanced Metrics */}
+                                        <div className="grid grid-cols-2 gap-2 mt-4 pt-4 border-t border-slate-50">
+                                            <div className="bg-slate-50 p-2 rounded-lg text-center">
+                                                <div className="flex items-center justify-center gap-1 text-slate-500 text-xs mb-1">
+                                                    <Percent className="w-3 h-3" />
+                                                    <span>نسبة الرضا</span>
+                                                </div>
+                                                <span className={`font-bold ${tech.customerSatisfactionRate >= 80 ? "text-emerald-600" : "text-amber-600"}`}>
+                                                    {tech.customerSatisfactionRate.toFixed(0)}%
+                                                </span>
+                                            </div>
+                                            <div className="bg-slate-50 p-2 rounded-lg text-center">
+                                                <div className="flex items-center justify-center gap-1 text-slate-500 text-xs mb-1">
+                                                    <AlertCircle className="w-3 h-3" />
+                                                    <span>إعادة العمل</span>
+                                                </div>
+                                                <span className={`font-bold ${tech.reworkRate <= 5 ? "text-emerald-600" : "text-red-500"}`}>
+                                                    {tech.reworkRate.toFixed(1)}%
+                                                </span>
+                                            </div>
                                         </div>
-                                        <span className={`font-bold ${tech.customerSatisfactionRate >= 80 ? "text-emerald-600" : "text-amber-600"}`}>
-                                            {tech.customerSatisfactionRate.toFixed(0)}%
-                                        </span>
-                                    </div>
-                                    <div className="bg-slate-50 p-2 rounded-lg text-center">
-                                        <div className="flex items-center justify-center gap-1 text-slate-500 text-xs mb-1">
-                                            <AlertCircle className="w-3 h-3" />
-                                            <span>إعادة العمل</span>
-                                        </div>
-                                        <span className={`font-bold ${tech.reworkRate <= 5 ? "text-emerald-600" : "text-red-500"}`}>
-                                            {tech.reworkRate.toFixed(1)}%
-                                        </span>
-                                    </div>
-                                </div>
+                                    </>
+                                )}
 
                                 <div className="pt-4 border-t border-slate-100 flex justify-between items-center">
-                                    <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        className="text-slate-500 hover:text-primary hover:bg-primary/5 w-full"
-                                        onClick={() => {
-                                            setSelectedTechnician({ id: tech.technicianId, name: tech.technicianName });
-                                            setDetailsOpen(true);
-                                        }}
-                                    >
-                                        عرض التفاصيل والسجل
-                                    </Button>
+                                    <div className="flex gap-2 w-full">
+                                        {(user?.role !== "Supervisor" || tech.supervisorId === user.id) && tech.status !== "Suspended" && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="text-slate-500 hover:text-primary hover:bg-primary/5 flex-1"
+                                                onClick={() => {
+                                                    setSelectedTechnician({ id: tech.technicianId, name: tech.technicianName });
+                                                    setDetailsOpen(true);
+                                                }}
+                                            >
+                                                عرض التفاصيل والسجل
+                                            </Button>
+                                        )}
+                                        {user?.role === "Admin" && (
+                                            <>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className={`${tech.status === "Suspended" ? "text-green-500 hover:bg-green-50" : "text-amber-500 hover:bg-amber-50"}`}
+                                                    onClick={() => {
+                                                        const newStatus = tech.status === "Suspended" ? "Active" : "Suspended";
+                                                        if (confirm(`هل أنت متأكد من ${newStatus === "Suspended" ? "إيقاف" : "تفعيل"} هذا الفني؟`)) {
+                                                            statusMutation.mutate({ id: tech.technicianId, status: newStatus });
+                                                        }
+                                                    }}
+                                                    title={tech.status === "Suspended" ? "tإعادة تفعيل" : "إيقاف مؤقت"}
+                                                >
+                                                    {tech.status === "Suspended" ? <PlayCircle className="h-4 w-4" /> : <PauseCircle className="h-4 w-4" />}
+                                                </Button>
+                                                <EditTechnicianDialog technician={tech} />
+                                                <AlertDialog>
+                                                    <AlertDialogTrigger asChild>
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="icon"
+                                                            className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                                        >
+                                                            <Trash2 className="h-4 w-4" />
+                                                        </Button>
+                                                    </AlertDialogTrigger>
+                                                    <AlertDialogContent>
+                                                        <AlertDialogHeader>
+                                                            <AlertDialogTitle>حذف الفني نهائياً</AlertDialogTitle>
+                                                            <AlertDialogDescription>
+                                                                هل أنت متأكد من رغبتك في حذف الفني "{tech.technicianName}"؟
+                                                                <br />
+                                                                سيؤدي هذا الإجراء إلى حذف جميع البيانات المرتبطة به بما في ذلك التقييمات والسجلات ولا يمكن التراجع عنه.
+                                                            </AlertDialogDescription>
+                                                        </AlertDialogHeader>
+                                                        <AlertDialogFooter>
+                                                            <AlertDialogCancel>إلغاء</AlertDialogCancel>
+                                                            <AlertDialogAction
+                                                                onClick={() => deleteMutation.mutate(tech.technicianId)}
+                                                                className="bg-red-600 hover:bg-red-700 focus:ring-red-600"
+                                                            >
+                                                                تأكيد الحذف
+                                                            </AlertDialogAction>
+                                                        </AlertDialogFooter>
+                                                    </AlertDialogContent>
+                                                </AlertDialog>
+                                            </>
+                                        )}
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

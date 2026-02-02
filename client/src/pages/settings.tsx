@@ -35,7 +35,12 @@ import { format } from "date-fns";
 import { ar } from "date-fns/locale";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Plus, Pencil, Trash2, Shield, History, FileText, User, Settings as SettingsIcon, AlertCircle, Star, Briefcase } from "lucide-react";
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from "@/components/ui/popover";
+import { Plus, Pencil, Trash2, Shield, History, FileText, User, Settings as SettingsIcon, AlertCircle, Star, Briefcase, ArrowLeft, Eye } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 export default function Settings() {
@@ -194,14 +199,16 @@ export default function Settings() {
                                             <TableCell className="text-muted-foreground">{u.email}</TableCell>
                                             <TableCell>
                                                 <Badge
-                                                    variant={u.role === "Admin" ? "default" : u.role === "Supervisor" ? "secondary" : "outline"}
+                                                    variant={u.role === "Admin" ? "default" : u.role === "Supervisor" || u.role === "FollowUpManager" ? "secondary" : "outline"}
                                                     className="gap-1"
                                                 >
                                                     {u.role === "Admin" ? <Shield className="w-3 h-3" /> :
                                                         u.role === "Supervisor" ? <User className="w-3 h-3" /> :
-                                                            <FileText className="w-3 h-3" />}
+                                                            u.role === "FollowUpManager" ? <Briefcase className="w-3 h-3" /> :
+                                                                <FileText className="w-3 h-3" />}
                                                     {u.role === "Admin" ? "مدير النظام" :
-                                                        u.role === "Supervisor" ? "مشرف" : "مستخدم"}
+                                                        u.role === "Supervisor" ? "مشرف" :
+                                                            u.role === "FollowUpManager" ? "مدير متابعة" : "مستخدم"}
                                                 </Badge>
                                             </TableCell>
                                             <TableCell>
@@ -283,10 +290,37 @@ export default function Settings() {
                                                     </div>
                                                 </TableCell>
                                                 <TableCell>
-                                                    <Badge variant={actionColor as any} className="gap-1.5 px-2.5 py-0.5">
-                                                        <EntityIcon className="w-3.5 h-3.5" />
-                                                        {translateAction(log.action)}
-                                                    </Badge>
+                                                    <div className="flex items-center gap-2">
+                                                        <Badge variant={actionColor as any} className="gap-1.5 px-2.5 py-0.5">
+                                                            <EntityIcon className="w-3.5 h-3.5" />
+                                                            {translateAction(log.action)}
+                                                        </Badge>
+                                                        {log.details && log.details.changes && (log.details.changes as any).length > 0 && (
+                                                            <Popover>
+                                                                <PopoverTrigger asChild>
+                                                                    <Button variant="ghost" size="icon" className="h-6 w-6 rounded-full hover:bg-slate-100">
+                                                                        <Eye className="w-3 h-3 text-slate-500" />
+                                                                    </Button>
+                                                                </PopoverTrigger>
+                                                                <PopoverContent className="w-80 p-3" align="start">
+                                                                    <div className="space-y-2">
+                                                                        <h4 className="font-semibold text-sm border-b pb-1 mb-2">التغييرات:</h4>
+                                                                        {(log.details.changes as any[]).map((change: any, i: number) => (
+                                                                            <div key={i} className="text-xs grid grid-cols-[1fr,auto,1fr] gap-2 items-center">
+                                                                                <span className="text-muted-foreground font-medium text-right">
+                                                                                    {translateField(change.field)}
+                                                                                </span>
+                                                                                <ArrowLeft className="w-3 h-3 text-slate-300" />
+                                                                                <span className="truncate font-mono bg-slate-50 px-1 rounded border">
+                                                                                    {String(change.to)}
+                                                                                </span>
+                                                                            </div>
+                                                                        ))}
+                                                                    </div>
+                                                                </PopoverContent>
+                                                            </Popover>
+                                                        )}
+                                                    </div>
                                                 </TableCell>
 
                                                 <TableCell className="text-center">
@@ -465,6 +499,28 @@ function UserForm({ user, onSubmit, isEditing = false }: { user?: TeamMember; on
                             </div>
                         </div>
 
+                        {/* Service Requests Section */}
+                        <div className="border rounded-md p-4 bg-white shadow-sm">
+                            <div className="flex items-center gap-2 mb-3 pb-2 border-b">
+                                <Briefcase className="w-4 h-4 text-purple-500" />
+                                <Label className="text-base font-medium">الطلبات</Label>
+                            </div>
+                            <div className="grid grid-cols-1 gap-3">
+                                {permissions.filter(p => p.includes("request")).map((perm) => (
+                                    <div key={perm} className="flex items-center space-x-2 space-x-reverse">
+                                        <Checkbox
+                                            id={perm}
+                                            checked={selectedPermissions.includes(perm)}
+                                            onCheckedChange={() => togglePermission(perm)}
+                                        />
+                                        <label htmlFor={perm} className="text-sm cursor-pointer select-none">
+                                            {translatePermission(perm)}
+                                        </label>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
                         {/* Users & Settings Section */}
                         <div className="border rounded-md p-4 bg-white shadow-sm">
                             <div className="flex items-center gap-2 mb-3 pb-2 border-b">
@@ -476,7 +532,8 @@ function UserForm({ user, onSubmit, isEditing = false }: { user?: TeamMember; on
                                     !p.includes("complaint") &&
                                     !p.includes("note") &&
                                     !p.includes("evaluation") &&
-                                    !p.includes("technician")
+                                    !p.includes("technician") &&
+                                    !p.includes("request")
                                 ).map((perm) => (
                                     <div key={perm} className="flex items-center space-x-2 space-x-reverse">
                                         <Checkbox
@@ -524,8 +581,15 @@ function translateAction(action: string) {
         "BULK_UPDATE_STATUS": "تحديث حالة جماعي",
         "CREATE_FIELD_TECHNICIAN": "إضافة فني ميداني",
         "UPDATE_FIELD_TECHNICIAN": "تعديل بيانات فني",
+        "UPDATE_TECHNICIAN_STATUS": "تحديث حالة فني",
         "DELETE_FIELD_TECHNICIAN": "حذف فني",
         "CREATE_EVALUATION": "إضافة تقييم",
+
+        // Service Requests
+        "CREATE_SERVICE_REQUEST": "إضافة طلب خدمة",
+        "UPDATE_SERVICE_REQUEST": "تعديل طلب خدمة",
+        "DELETE_SERVICE_REQUEST": "حذف طلب خدمة",
+        "UPDATE_SERVICE_REQUEST_STATUS": "تحديث حالة الطلب",
     };
     return map[action] || action;
 }
@@ -543,6 +607,15 @@ function translatePermission(perm: string) {
         "delete_complaint": "حذف شكوى",
         "assign_complaint": "تعيين شكوى",
         "manage_notes": "إدارة الملاحظات",
+
+        // Service Requests
+        "view_requests": "عرض الطلبات",
+        "view_requests_stats": "عرض إحصائيات الطلبات",
+        "create_request": "إضافة طلب جديد",
+        "edit_request": "تعديل الطلبات",
+        "delete_request": "حذف الطلبات",
+        "print_request": "طباعة الطلبات",
+        "manage_requests": "إدارة الطلبات (حالة/تعيين)",
 
         // Users
         "view_users": "عرض المستخدمين",
@@ -570,4 +643,21 @@ function translatePermission(perm: string) {
         "manage_technicians": "إدارة بيانات الفنيين",
     };
     return map[perm] || perm;
+}
+
+function translateField(field: string) {
+    const map: Record<string, string> = {
+        title: "العنوان",
+        description: "الوصف",
+        status: "الحالة",
+        type: "النوع",
+        source: "المصدر",
+        severity: "الأهمية",
+        priority: "الأولوية",
+        customerName: "اسم العميل",
+        customerPhone: "رقم العميل",
+        orderNumber: "رقم الطلب",
+        assignedTo: "المسند إليه"
+    };
+    return map[field] || field;
 }

@@ -15,7 +15,14 @@ import {
   Download,
   AlertTriangle,
   Award,
-  Filter
+
+  Filter,
+  Zap,
+  UserPlus,
+  FilePlus,
+  BarChart2,
+  Settings,
+  HardHat
 } from "lucide-react";
 import { Link, Redirect } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -59,13 +66,13 @@ interface TechnicianStat {
 }
 
 const statusColors: Record<string, string> = {
-  New: "bg-blue-50 text-blue-700 border-blue-200",
-  "Under Review": "bg-amber-50 text-amber-700 border-amber-200",
-  Transferred: "bg-purple-50 text-purple-700 border-purple-200",
-  "Pending Customer": "bg-orange-50 text-orange-700 border-orange-200",
-  Resolved: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  Closed: "bg-slate-50 text-slate-700 border-slate-200",
-  Rejected: "bg-rose-50 text-rose-700 border-rose-200",
+  New: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800",
+  "Under Review": "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-800",
+  Transferred: "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-900/30 dark:text-purple-300 dark:border-purple-800",
+  "Pending Customer": "bg-orange-50 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800",
+  Resolved: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-800",
+  Closed: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
+  Rejected: "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-300 dark:border-rose-800",
 };
 
 const statusTranslations: Record<string, string> = {
@@ -79,31 +86,25 @@ const statusTranslations: Record<string, string> = {
 };
 
 const typeTranslations: Record<string, string> = {
-  "Technical": "مشكلة فنية",
-  "Billing": "فواتير",
-  "Payment": "مدفوعات",
-  "Behavioral": "سلوك الموظف",
-  "Price": "السعر",
+  "Technical": "فني",
+  "Behavioral": "سلوكي",
+  "Price": "أسعار",
   "Delay": "تأخير",
   "Service Quality": "جودة الخدمة",
-  "App": "التطبيق",
-  "Other": "أخرى",
-  "Product": "منتج",
-  "Service": "خدمة",
-  "Staff": "موظفين"
+  "Payment": "دفع",
+  "App": "تطبيق",
+  "Other": "أخرى"
 };
 
 const sourceTranslations: Record<string, string> = {
-  "Social Media": "وسائل التواصل",
+  "Social Media": "وسائل التواصل الاجتماعي",
   "Google Play": "جوجل بلاي",
   "App Store": "آب ستور",
-  "App Support": "دعم التطبيق",
+  "App Support": "الدعم في التطبيق",
   "Field": "ميداني",
   "Phone": "هاتف",
-  "Email": "بريد إلكتروني",
-  "Call Center": "مركز الاتصال",
-  "Website": "الموقع",
-  "Mobile App": "تطبيق الهاتف",
+  "Email": "البريد الإلكتروني",
+  "Website": "موقع فزاع برو",
   "Walk-in": "زيارة شخصية"
 };
 
@@ -210,6 +211,11 @@ export default function Dashboard() {
   // Data Fetching
   const { data: allStats, isLoading: statsLoading } = useQuery<DashboardStats>({ queryKey: ["/api/stats"] });
   const { data: complaints, isLoading: complaintsLoading } = useQuery<Complaint[]>({ queryKey: ["/api/complaints"] });
+  const { data: requestStats, isLoading: requestStatsLoading } = useQuery<any>({
+    queryKey: ["/api/reports/requests"],
+    enabled: hasPermission("view_reports")
+  });
+
   const { data: techStats } = useQuery<TechnicianStat[]>({
     queryKey: ["/api/evaluations/stats"],
     enabled: hasPermission("view_evaluations") || hasPermission("view_technicians")
@@ -337,7 +343,7 @@ export default function Dashboard() {
               {format(today, "EEEE، d MMMM yyyy", { locale: arEG })}
             </div>
             <h1 className="text-4xl font-bold leading-tight">
-              مرحباً، <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200">{user?.name}</span> 👋
+              مرحباً، <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-200 to-indigo-200">{user?.name?.split(' ')[0]}</span> 👋
             </h1>
             <p className="text-slate-300 max-w-xl text-lg">
               لديك <strong className="text-white">{alerts.urgent.length}</strong> شكاوى عاجلة و <strong className="text-white">{alerts.overdue.length}</strong> شكاوى متأخرة تتطلب انتباهك.
@@ -416,7 +422,95 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Main Stats Grid */}
+      {/* Admin Shortcuts & Quick Actions */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Link href="/requests">
+          <div className="bg-white border border-slate-200 hover:border-blue-500 hover:shadow-md cursor-pointer transition-all p-4 rounded-xl flex items-center gap-4 group">
+            <div className="bg-blue-100 p-3 rounded-full group-hover:bg-blue-600 transition-colors">
+              <FilePlus className="w-6 h-6 text-blue-600 group-hover:text-white transition-colors" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800">طلبات الخدمة</h3>
+              <p className="text-xs text-slate-500">إدارة ومتابعة الطلبات</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link href="/reports">
+          <div className="bg-white border border-slate-200 hover:border-purple-500 hover:shadow-md cursor-pointer transition-all p-4 rounded-xl flex items-center gap-4 group">
+            <div className="bg-purple-100 p-3 rounded-full group-hover:bg-purple-600 transition-colors">
+              <BarChart2 className="w-6 h-6 text-purple-600 group-hover:text-white transition-colors" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800">التقارير</h3>
+              <p className="text-xs text-slate-500">تحليلات وإحصائيات</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link href="/evaluations">
+          <div className="bg-white border border-slate-200 hover:border-amber-500 hover:shadow-md cursor-pointer transition-all p-4 rounded-xl flex items-center gap-4 group">
+            <div className="bg-amber-100 p-3 rounded-full group-hover:bg-amber-600 transition-colors">
+              <HardHat className="w-6 h-6 text-amber-600 group-hover:text-white transition-colors" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800">الفنيين</h3>
+              <p className="text-xs text-slate-500">الأداء والتقييمات</p>
+            </div>
+          </div>
+        </Link>
+
+        <Link href="/settings">
+          <div className="bg-white border border-slate-200 hover:border-slate-800 hover:shadow-md cursor-pointer transition-all p-4 rounded-xl flex items-center gap-4 group">
+            <div className="bg-slate-100 p-3 rounded-full group-hover:bg-slate-800 transition-colors">
+              <Settings className="w-6 h-6 text-slate-800 group-hover:text-white transition-colors" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800">الإعدادات</h3>
+              <p className="text-xs text-slate-500">ضبط النظام والصلاحيات</p>
+            </div>
+          </div>
+        </Link>
+      </div>
+
+      {/* Requests Snapshot Banner */}
+      {requestStats && (
+        <div className="bg-gradient-to-l from-emerald-50 to-teal-50 border border-emerald-100 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="bg-emerald-100 p-4 rounded-full">
+              <Zap className="w-8 h-8 text-emerald-600" />
+            </div>
+            <div>
+              <h3 className="text-xl font-bold text-emerald-900">ملخص وحدة الطلبات</h3>
+              <p className="text-emerald-700">نظرة سريعة على أداء طلبات الخدمة الميدانية</p>
+            </div>
+          </div>
+
+          <div className="flex gap-8 text-center">
+            <div>
+              <p className="text-sm font-medium text-emerald-600 mb-1">الطلبات المفتوحة</p>
+              <p className="text-2xl font-bold text-emerald-900">{requestStats.kpi.openRequests}</p>
+            </div>
+            <div className="w-px bg-emerald-200 h-10 self-center"></div>
+            <div>
+              <p className="text-sm font-medium text-emerald-600 mb-1">المكتملة</p>
+              <p className="text-2xl font-bold text-emerald-900">{requestStats.kpi.completed}</p>
+            </div>
+            <div className="w-px bg-emerald-200 h-10 self-center"></div>
+            <div>
+              <p className="text-sm font-medium text-emerald-600 mb-1">نسبة الإنجاز</p>
+              <p className="text-2xl font-bold text-emerald-900">{requestStats.kpi.completionRate}%</p>
+            </div>
+          </div>
+
+          <Link href="/requests">
+            <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              إدارة الطلبات
+              <ArrowRight className="w-4 h-4 mr-2" />
+            </Button>
+          </Link>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {statsLoading ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-40 w-full rounded-2xl" />)

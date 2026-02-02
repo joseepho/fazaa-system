@@ -81,22 +81,26 @@ const severityTranslations: Record<string, string> = {
 };
 
 const sourceTranslations: Record<string, string> = {
-  "Call Center": "مركز الاتصال",
+  "Social Media": "وسائل التواصل الاجتماعي",
+  "Google Play": "جوجل بلاي",
+  "App Store": "آب ستور",
+  "App Support": "الدعم في التطبيق",
+  "Field": "ميداني",
+  "Phone": "هاتف",
   "Email": "البريد الإلكتروني",
   "Website": "موقع فزاع برو",
-  "Mobile App": "شكاوي صفحات التطبيق",
-  "Social Media": "وسائل التواصل الاجتماعي",
-  "Walk-in": "زيارة شخصية",
-  "App Support": "دعم التطبيق",
+  "Walk-in": "زيارة شخصية"
 };
 
 const typeTranslations: Record<string, string> = {
   "Technical": "فني",
-  "Service": "خدمة",
-  "Billing": "فواتير",
-  "Product": "منتج",
-  "Staff": "موظفين",
-  "Other": "أخرى",
+  "Behavioral": "سلوكي",
+  "Price": "أسعار",
+  "Delay": "تأخير",
+  "Service Quality": "جودة الخدمة",
+  "Payment": "دفع",
+  "App": "تطبيق",
+  "Other": "أخرى"
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -310,7 +314,7 @@ export default function ComplaintsList() {
             </div>
           ) : (
             <>
-              <div className="rounded-lg border overflow-hidden">
+              <div className="rounded-lg border overflow-hidden hidden md:block">
                 <Table>
                   <TableHeader>
                     <TableRow className="bg-muted/50">
@@ -401,6 +405,60 @@ export default function ComplaintsList() {
                     ))}
                   </TableBody>
                 </Table>
+              </div>
+
+              {/* Mobile Card View */}
+              <div className="grid grid-cols-1 gap-4 md:hidden">
+                {paginatedComplaints.map((complaint) => (
+                  <div
+                    key={complaint.id}
+                    className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => setLocation(`/complaints/${complaint.id}`)}
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-mono text-muted-foreground">#{complaint.id}</span>
+                        <h3 className="font-semibold text-lg leading-tight">{complaint.title}</h3>
+                      </div>
+                      <Badge className={statusColors[complaint.status]}>
+                        {statusTranslations[complaint.status] || complaint.status}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-y-2 text-sm text-muted-foreground mb-3">
+                      <div className="flex items-center gap-1">
+                        <span>نوع:</span>
+                        <span className="text-foreground">{typeTranslations[complaint.type] || complaint.type}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span>أهمية:</span>
+                        <Badge variant="outline" className={`text-xs px-1 py-0 ${severityColors[complaint.severity]}`}>
+                          {severityTranslations[complaint.severity] || complaint.severity}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span>التاريخ:</span>
+                        <span className="text-foreground">{formatDate(complaint.createdAt)}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <span>المنشئ:</span>
+                        <span className="text-foreground text-xs">{complaint.createdBy ? getAssigneeName(complaint.createdBy).split(' ')[0] : 'نظام'}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-3 border-t">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-muted-foreground">{sourceTranslations[complaint.source]}</span>
+                      </div>
+                      {(complaint as any).notesCount > 0 && (
+                        <div className="flex items-center gap-1 text-blue-600 text-xs font-medium">
+                          <MessageSquare className="w-3 h-3" />
+                          <span>{(complaint as any).notesCount} ردود</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
 
               {totalPages > 1 && (

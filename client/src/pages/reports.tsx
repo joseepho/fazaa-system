@@ -93,22 +93,26 @@ const severityTranslations: Record<string, string> = {
 };
 
 const sourceTranslations: Record<string, string> = {
-  "Call Center": "مركز الاتصال",
+  "Social Media": "وسائل التواصل الاجتماعي",
+  "Google Play": "جوجل بلاي",
+  "App Store": "آب ستور",
+  "App Support": "الدعم في التطبيق",
+  "Field": "ميداني",
+  "Phone": "هاتف",
   "Email": "البريد الإلكتروني",
   "Website": "موقع فزاع برو",
-  "Mobile App": "شكاوي صفحات التطبيق",
-  "Social Media": "وسائل التواصل الاجتماعي",
-  "Walk-in": "زيارة شخصية",
-  "App Support": "دعم التطبيق",
+  "Walk-in": "زيارة شخصية"
 };
 
 const typeTranslations: Record<string, string> = {
   "Technical": "فني",
-  "Service": "خدمة",
-  "Billing": "فواتير",
-  "Product": "منتج",
-  "Staff": "موظفين",
-  "Other": "أخرى",
+  "Behavioral": "سلوكي",
+  "Price": "أسعار",
+  "Delay": "تأخير",
+  "Service Quality": "جودة الخدمة",
+  "Payment": "دفع",
+  "App": "تطبيق",
+  "Other": "أخرى"
 };
 
 interface TechnicianStats {
@@ -153,12 +157,19 @@ export default function Reports() {
   );
   const [endDate, setEndDate] = useState(today.toISOString().split("T")[0]);
 
+  const { data: requestStats, isLoading: isRequestStatsLoading } = useQuery<any>({
+    queryKey: ["/api/reports/requests"],
+    enabled: !!user,
+  });
+
   const { data: complaints, isLoading } = useQuery<Complaint[]>({
     queryKey: ["/api/complaints"],
+    enabled: !!user,
   });
 
   const { data: teamMembers } = useQuery<TeamMember[]>({
     queryKey: ["/api/team-members"],
+    enabled: !!user,
   });
 
   const { data: technicianStats } = useQuery<TechnicianStats[]>({
@@ -301,8 +312,9 @@ export default function Reports() {
       </div>
 
       <Tabs defaultValue="general" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 lg:w-[400px]">
+        <TabsList className="grid w-full grid-cols-3 lg:w-[600px]">
           <TabsTrigger value="general">تقارير عامة</TabsTrigger>
+          <TabsTrigger value="requests">تقارير الطلبات</TabsTrigger>
           <TabsTrigger value="performance">أداء الفنيين</TabsTrigger>
         </TabsList>
 
@@ -356,8 +368,8 @@ export default function Reports() {
                         <p className="text-sm font-medium text-muted-foreground">إجمالي الشكاوى</p>
                         <h3 className="text-3xl font-bold mt-2">{reportData.totalComplaints}</h3>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-blue-100 flex items-center justify-center">
-                        <FileText className="w-6 h-6 text-blue-600" />
+                      <div className="w-12 h-12 rounded-full bg-blue-100 dark:bg-blue-900/20 flex items-center justify-center">
+                        <FileText className="w-6 h-6 text-blue-600 dark:text-blue-400" />
                       </div>
                     </div>
                     <div className="mt-4 flex items-center text-sm text-green-600">
@@ -375,8 +387,8 @@ export default function Reports() {
                         <p className="text-sm font-medium text-muted-foreground">نسبة الإنجاز</p>
                         <h3 className="text-3xl font-bold mt-2">{resolutionRate}%</h3>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-green-100 flex items-center justify-center">
-                        <CheckCircle2 className="w-6 h-6 text-green-600" />
+                      <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/20 flex items-center justify-center">
+                        <CheckCircle2 className="w-6 h-6 text-green-600 dark:text-green-400" />
                       </div>
                     </div>
                   </CardContent>
@@ -390,8 +402,8 @@ export default function Reports() {
                         <p className="text-sm font-medium text-muted-foreground">متوسط زمن الحل</p>
                         <h3 className="text-3xl font-bold mt-2">{avgResolutionTime}</h3>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center">
-                        <Clock className="w-6 h-6 text-orange-600" />
+                      <div className="w-12 h-12 rounded-full bg-orange-100 dark:bg-orange-900/20 flex items-center justify-center">
+                        <Clock className="w-6 h-6 text-orange-600 dark:text-orange-400" />
                       </div>
                     </div>
                   </CardContent>
@@ -407,8 +419,8 @@ export default function Reports() {
                           {reportData.totalComplaints - totalResolved}
                         </h3>
                       </div>
-                      <div className="w-12 h-12 rounded-full bg-purple-100 flex items-center justify-center">
-                        <AlertCircle className="w-6 h-6 text-purple-600" />
+                      <div className="w-12 h-12 rounded-full bg-purple-100 dark:bg-purple-900/20 flex items-center justify-center">
+                        <AlertCircle className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                       </div>
                     </div>
                   </CardContent>
@@ -504,13 +516,135 @@ export default function Reports() {
           )}
         </TabsContent>
 
+        <TabsContent value="requests" className="space-y-6 mt-6">
+          {isRequestStatsLoading ? (
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-32" />)}
+            </div>
+          ) : requestStats ? (
+            <>
+              {/* KPI Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">إجمالي الطلبات</p>
+                        <h3 className="text-3xl font-bold mt-2">{requestStats.kpi.total}</h3>
+                      </div>
+                      <div className="p-3 bg-blue-100 rounded-full"><FileText className="w-6 h-6 text-blue-600" /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">الطلبات المكتملة</p>
+                        <h3 className="text-3xl font-bold mt-2">{requestStats.kpi.completed}</h3>
+                      </div>
+                      <div className="p-3 bg-green-100 rounded-full"><CheckCircle2 className="w-6 h-6 text-green-600" /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">نسبة الإنجاز</p>
+                        <h3 className="text-3xl font-bold mt-2">{requestStats.kpi.completionRate}%</h3>
+                      </div>
+                      <div className="p-3 bg-purple-100 rounded-full"><Activity className="w-6 h-6 text-purple-600" /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">الطلبات المفتوحة</p>
+                        <h3 className="text-3xl font-bold mt-2">{requestStats.kpi.openRequests}</h3>
+                      </div>
+                      <div className="p-3 bg-indigo-100 rounded-full"><Clock className="w-6 h-6 text-indigo-600" /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-sm font-medium text-muted-foreground">متوسط زمن التنفيذ</p>
+                        <h3 className="text-3xl font-bold mt-2">{requestStats.kpi.avgDuration} دقيقة</h3>
+                      </div>
+                      <div className="p-3 bg-orange-100 rounded-full"><Clock className="w-6 h-6 text-orange-600" /></div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Charts */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <Card className="col-span-1">
+                  <CardHeader><CardTitle>حالات الطلبات</CardTitle></CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie data={requestStats.statusDist} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={80} label>
+                          {requestStats.statusDist.map((entry: any, index: number) => (
+                            <Cell key={`cell-${index}`} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="col-span-1">
+                  <CardHeader><CardTitle>الطلبات خلال 30 يوم</CardTitle></CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart data={requestStats.dailyTrend}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="date" />
+                        <YAxis />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="count" stackId="1" stroke="#8884d8" fill="#8884d8" name="الكل" />
+                        <Area type="monotone" dataKey="completed" stackId="2" stroke="#82ca9d" fill="#82ca9d" name="مكتمل" />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="col-span-1 lg:col-span-2">
+                  <CardHeader><CardTitle>أكثر الفنيين نشاطاً</CardTitle></CardHeader>
+                  <CardContent className="h-[300px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={requestStats.topTechnicians}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis />
+                        <Tooltip />
+                        <Bar dataKey="count" fill="#8884d8" name="عدد الطلبات" />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+            </>
+          ) : (
+            <div className="p-12 text-center text-muted-foreground">لا توجد بيانات متاحة</div>
+          )}
+        </TabsContent>
+
         <TabsContent value="performance" className="space-y-6 mt-6">
           <TechnicianLiveDashboard
             members={technicianStats || []}
           />
         </TabsContent>
       </Tabs>
-    </div>
+    </div >
   );
 }
 
@@ -749,9 +883,9 @@ function TechnicianLiveDashboard({ members }: { members: TechnicianStats[] }) {
             {lowPerformanceTechs.length > 0 ? (
               <div className="space-y-3">
                 {lowPerformanceTechs.map((tech) => (
-                  <div key={tech.technicianId} className="flex items-center justify-between p-3 rounded-lg bg-orange-50 border border-orange-100">
+                  <div key={tech.technicianId} className="flex items-center justify-between p-3 rounded-lg bg-orange-50 dark:bg-orange-900/10 border border-orange-100 dark:border-orange-900/30">
                     <div className="flex items-center gap-3">
-                      <div className="h-8 w-8 rounded-full bg-orange-200 flex items-center justify-center text-orange-700 font-bold text-xs">{tech.technicianName.charAt(0)}</div>
+                      <div className="h-8 w-8 rounded-full bg-orange-200 dark:bg-orange-800 flex items-center justify-center text-orange-700 dark:text-orange-100 font-bold text-xs">{tech.technicianName.charAt(0)}</div>
                       <div>
                         <p className="text-sm font-medium text-slate-800">{tech.technicianName}</p>
                         <p className="text-xs text-red-500">معدل الانضباط: {tech.avgPunctuality.toFixed(1)}</p>

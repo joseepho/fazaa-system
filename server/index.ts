@@ -4,6 +4,7 @@ import { serveStatic } from "./static";
 import { createServer } from "http";
 
 const app = express();
+app.set("trust proxy", 1); // Trust first proxy (Nginx)
 const httpServer = createServer(app);
 
 declare module "http" {
@@ -85,9 +86,9 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
+      // if (capturedJsonResponse) {
+      //   logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+      // }
 
       log(logLine);
     }
@@ -100,6 +101,7 @@ import { setupAuth } from "./auth";
 import { setupWebSocket } from "./ws";
 
 (async () => {
+  const start = Date.now();
   await setupAuth(app);
   setupWebSocket(httpServer);
   await registerRoutes(httpServer, app);
@@ -133,7 +135,17 @@ import { setupWebSocket } from "./ws";
       host: "0.0.0.0",
     },
     () => {
-      log(`serving on port ${port}`);
+      const duration = Date.now() - start;
+      console.log(`
+      ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+      ┃               نظـــام فـــزاع بـــرو                 ┃
+      ┃             Fazza Pro Complaints System                ┃
+      ┃           🚀 Server Started in ${duration}ms             ┃
+      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+      
+      🌐 Dashboard:      http://localhost:${port}
+      📅 Time:           ${new Date().toLocaleString('ar-EG')}
+      `);
     },
   );
 })();

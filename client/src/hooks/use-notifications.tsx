@@ -40,50 +40,77 @@ export function NotificationProvider({ children }: { children: ReactNode }) {
     useEffect(() => {
         if (!user) return;
 
-        const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-        const wsUrl = `${protocol}//${window.location.host}/ws`;
-        const ws = new WebSocket(wsUrl);
+        let ws: WebSocket | null = null;
+        let reconnectTimeout: NodeJS.Timeout;
 
-        ws.onopen = () => {
-            console.log("Connected to notification server");
-        };
+        const connect = () => {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${protocol}//${window.location.host}/ws`;
 
-        ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                if (data.type === "NOTIFICATION") {
-                    // Invalidate query to fetch new notifications
-                    queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+            ws = new WebSocket(wsUrl);
 
-                    // Only play sound and show toast for Admin
-                    if (user.role === "Admin") {
-                        // Play sound multiple times
-                        if (audioRef.current) {
-                            const playSound = (times: number) => {
-                                if (times <= 0) return;
-                                audioRef.current!.currentTime = 0;
-                                audioRef.current!.play().catch(e => console.error("Error playing sound:", e));
-                                setTimeout(() => playSound(times - 1), 800); // Play every 800ms
-                            };
-                            playSound(3);
+            ws.onopen = () => {
+                console.log("Connected to notification server");
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === "NOTIFICATION") {
+                        // Invalidate query to fetch new notifications
+                        queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+
+                        // Admin Toast Notification Logic
+                        if (user.role === "Admin") {
+                            // Play sound
+                            if (audioRef.current) {
+                                audioRef.current.currentTime = 0;
+                                audioRef.current.play().catch(e => console.error("Error playing sound:", e));
+                            }
+
+                            // Show toast
+                            toast({
+                                title: data.payload.title,
+                                description: data.payload.message,
+                                variant: "default",
+                                className: "bg-white border-l-4 border-l-primary" // Make it pop
+                            });
                         }
+                    }
 
-                        // Show toast
-                        toast({
-                            title: data.payload.title,
-                            description: data.payload.message,
+                    if (data.type === "REFRESH_DATA") {
+                        const keys = data.payload.queryKeys || [];
+                        keys.forEach((key: string[]) => {
+                            queryClient.invalidateQueries({ queryKey: key });
+                            console.log("Refetching:", key);
                         });
                     }
+                } catch (e) {
+                    console.error("Error parsing WS message", e);
                 }
-            } catch (e) {
-                console.error("Error parsing WS message", e);
-            }
+            };
+
+            ws.onclose = () => {
+                console.log("WebSocket disconnected. Reconnecting...");
+                reconnectTimeout = setTimeout(() => connect(), 3000);
+            };
+
+            ws.onerror = (err) => {
+                console.error("WebSocket error:", err);
+                ws?.close();
+            };
+
+            setSocket(ws);
         };
 
-        setSocket(ws);
+        connect();
 
         return () => {
-            ws.close();
+            if (ws) {
+                ws.onclose = null; // Prevent reconnect on unmount
+                ws.close();
+            }
+            clearTimeout(reconnectTimeout);
         };
     }, [user, toast]);
 

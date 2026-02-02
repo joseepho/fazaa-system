@@ -12,10 +12,15 @@ import {
   type FieldTechnician, type InsertFieldTechnician,
   type DailyEvaluation, type InsertDailyEvaluation,
   type DetailedEvaluation, type InsertDetailedEvaluation,
-  type DashboardStats
+  type DashboardStats,
+  serviceRequests, type ServiceRequest, type InsertServiceRequest,
+  serviceRequestNotes, type ServiceRequestNote, type InsertServiceRequestNote,
+  serviceRequestStatusChanges, type ServiceRequestStatusChange, type InsertServiceRequestStatusChange,
+  serviceRequestAssignments
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, or, and, desc, sql, getTableColumns } from "drizzle-orm";
+import { alias } from "drizzle-orm/sqlite-core";
 import session from "express-session";
 
 export type User = TeamMember;
@@ -72,6 +77,9 @@ export interface IStorage {
   createFieldTechnician(tech: InsertFieldTechnician): Promise<FieldTechnician>;
   getFieldTechnicians(): Promise<(FieldTechnician & { supervisorName: string | null, complaintCount: number })[]>;
   getFieldTechnician(id: number): Promise<FieldTechnician | undefined>;
+  updateFieldTechnician(id: number, updates: Partial<InsertFieldTechnician>): Promise<FieldTechnician | undefined>;
+  deleteFieldTechnician(id: number): Promise<boolean>;
+  updateFieldTechnicianStatus(id: number, status: string): Promise<FieldTechnician | undefined>;
 
   // Detailed Evaluations (New System)
   createDetailedEvaluation(evalData: InsertDetailedEvaluation): Promise<DetailedEvaluation>;
@@ -88,6 +96,9 @@ export interface IStorage {
     technicianId: number;
     technicianName: string;
     role: string;
+    status: string; // Added status
+    supervisorId: number | null; // Added supervisorId
+    supervisorName: string | null; // Added supervisorName
     avgPunctuality: number;
     avgQuality: number;
     avgBehavior: number;
@@ -100,6 +111,23 @@ export interface IStorage {
     classification: string;
   }[]>;
   getTechnicianStats(technicianId: number): Promise<{ averageRating: number; totalEvaluations: number }>;
+  getServiceRequestStats(): Promise<any>;
+  getServiceRequestReports(): Promise<any>;
+
+  // Service Requests
+  createServiceRequest(req: InsertServiceRequest): Promise<ServiceRequest>;
+  getServiceRequests(): Promise<(ServiceRequest & { technicianName: string | null })[]>;
+  getServiceRequestById(id: number): Promise<(ServiceRequest & { technicianName: string | null; technicianPhone: string | null; supervisorName: string | null; technicianSpecialization: string | null }) | undefined>;
+  updateServiceRequest(id: number, updates: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined>;
+  deleteServiceRequest(id: number): Promise<boolean>;
+  updateServiceRequestStatus(id: number, status: string, userId?: number): Promise<ServiceRequest | undefined>;
+  getServiceRequestNotes(requestId: number): Promise<(ServiceRequestNote & { authorName: string | null })[]>;
+  createServiceRequestNote(note: InsertServiceRequestNote): Promise<ServiceRequestNote>;
+  getServiceRequestStatusHistory(requestId: number): Promise<ServiceRequestStatusChange[]>;
+  createServiceRequestStatusChange(change: InsertServiceRequestStatusChange): Promise<ServiceRequestStatusChange>;
+  updateServiceRequestTechnician(id: number, technicianId: number, userId: number): Promise<ServiceRequest | undefined>;
+  getServiceRequestAssignments(requestId: number): Promise<any[]>;
+  getServiceRequestByOrderNumber(orderNumber: string): Promise<ServiceRequest | undefined>;
 
   sessionStore: session.Store;
 }
@@ -111,7 +139,269 @@ export class SqliteStorage implements IStorage {
     this.sessionStore = new session.MemoryStore();
   }
 
-  // --- User Management ---
+  async getServiceRequestByOrderNumber(orderNumber: string): Promise<ServiceRequest | undefined> {
+    const [request] = await db
+      .select()
+      .from(serviceRequests)
+      .where(eq(serviceRequests.orderNumber, orderNumber));
+    return request;
+  }
+
+  async getServiceRequestReports(): Promise<any> {
+    const allRequests = await db.select({
+      id: serviceRequests.id,
+      status: serviceRequests.status,
+      requestDate: serviceRequests.requestDate,
+      technicianId: serviceRequests.technicianId,
+      paymentMethod: serviceRequests.paymentMethod,
+      executionDuration: serviceRequests.executionDuration,
+      technicianName: fieldTechnicians.name
+    })
+      .from(serviceRequests)
+      .leftJoin(fieldTechnicians, eq(serviceRequests.technicianId, fieldTechnicians.id));
+
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // 1. Status Distribution
+    const statusMap: Record<string, string> = {
+      "New": "جديد",
+      "In Progress": "جاري التنفيذ",
+      "Completed": "مكتمل",
+      "On Hold": "مؤجل",
+      "Cancelled": "ملغي",
+    };
+
+    const statusDist = allRequests.reduce((acc, curr) => {
+      const translatedStatus = statusMap[curr.status] || curr.status;
+      acc[translatedStatus] = (acc[translatedStatus] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    // 2. Technician Workload (Top 5)
+    const techWorkload = allRequests.reduce((acc, curr) => {
+      const name = curr.technicianName || "غير محدد";
+      acc[name] = (acc[name] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    const topTechnicians = Object.entries(techWorkload)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a: any, b: any) => b.count - a.count)
+      .slice(0, 5);
+
+    // 3. Daily Stats (Last 30 Days)
+    const last30Days = new Date();
+    last30Days.setDate(last30Days.getDate() - 30);
+
+    const dailyStatsMap = allRequests.filter(r => new Date(r.requestDate) >= last30Days).reduce((acc, curr) => {
+      const dateStr = new Date(curr.requestDate).toLocaleDateString('en-CA'); // YYYY-MM-DD
+      if (!acc[dateStr]) acc[dateStr] = { date: dateStr, count: 0, completed: 0 };
+      acc[dateStr].count++;
+      if (curr.status === 'Completed') acc[dateStr].completed++;
+      return acc;
+    }, {} as Record<string, any>);
+
+    const dailyTrend = Object.values(dailyStatsMap).sort((a: any, b: any) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    const total = allRequests.length;
+    const completed = allRequests.filter(r => r.status === 'Completed').length;
+    const openRequests = allRequests.filter(r => r.status !== 'Completed' && r.status !== 'Cancelled').length;
+    const completionRate = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+    const durations = allRequests.filter(r => r.executionDuration).map(r => r.executionDuration as number);
+    const avgDuration = durations.length > 0 ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+
+    const thisMonthRequests = allRequests.filter(r => new Date(r.requestDate) >= startOfMonth).length;
+
+    // 5. Payment Methods
+    const paymentStats = allRequests.reduce((acc, curr) => {
+      acc[curr.paymentMethod] = (acc[curr.paymentMethod] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+
+    return {
+      statusDist: Object.entries(statusDist).map(([name, value]) => ({ name, value })),
+      topTechnicians,
+      dailyTrend,
+      kpi: {
+        total,
+        completed,
+        openRequests, // Added Open Requests
+        completionRate,
+        avgDuration,
+        thisMonth: thisMonthRequests
+      },
+      paymentMethods: Object.entries(paymentStats).map(([name, value]) => ({ name, value }))
+    };
+  }
+
+  // --- Service Requests Implementation ---
+  async createServiceRequest(req: InsertServiceRequest): Promise<ServiceRequest> {
+    const [result] = await db.insert(serviceRequests).values({
+      ...req,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    }).returning();
+    return result;
+  }
+
+  async getServiceRequests(): Promise<(ServiceRequest & { technicianName: string | null })[]> {
+    return db.select({
+      ...getTableColumns(serviceRequests),
+      technicianName: fieldTechnicians.name
+    })
+      .from(serviceRequests)
+      .leftJoin(fieldTechnicians, eq(serviceRequests.technicianId, fieldTechnicians.id))
+      .orderBy(desc(serviceRequests.requestDate));
+  }
+
+  async getServiceRequestById(id: number): Promise<(ServiceRequest & { technicianName: string | null; technicianPhone: string | null; supervisorName: string | null; technicianSpecialization: string | null }) | undefined> {
+    const [result] = await db.select({
+      ...getTableColumns(serviceRequests),
+      technicianName: fieldTechnicians.name,
+      technicianPhone: fieldTechnicians.phone,
+      technicianSpecialization: fieldTechnicians.specialization,
+      supervisorName: teamMembers.name
+    })
+      .from(serviceRequests)
+      .leftJoin(fieldTechnicians, eq(serviceRequests.technicianId, fieldTechnicians.id))
+      .leftJoin(teamMembers, eq(fieldTechnicians.supervisorId, teamMembers.id))
+      .where(eq(serviceRequests.id, id));
+    return result;
+  }
+
+  async updateServiceRequest(id: number, updates: Partial<InsertServiceRequest>): Promise<ServiceRequest | undefined> {
+    const [result] = await db.update(serviceRequests)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(serviceRequests.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteServiceRequest(id: number): Promise<boolean> {
+    await db.delete(serviceRequestNotes).where(eq(serviceRequestNotes.requestId, id));
+    await db.delete(serviceRequestStatusChanges).where(eq(serviceRequestStatusChanges.requestId, id));
+    await db.delete(serviceRequestAssignments).where(eq(serviceRequestAssignments.requestId, id));
+    const [result] = await db.delete(serviceRequests).where(eq(serviceRequests.id, id)).returning();
+    return !!result;
+  }
+
+  async updateServiceRequestTechnician(id: number, technicianId: number, userId: number): Promise<ServiceRequest | undefined> {
+    const [original] = await db.select().from(serviceRequests).where(eq(serviceRequests.id, id));
+    if (!original) return undefined;
+
+    if (original.technicianId === technicianId) return original;
+
+    const [updated] = await db
+      .update(serviceRequests)
+      .set({ technicianId, updatedAt: new Date() })
+      .where(eq(serviceRequests.id, id))
+      .returning();
+
+    await db.insert(serviceRequestAssignments).values({
+      requestId: id,
+      fromTechnicianId: original.technicianId,
+      toTechnicianId: technicianId,
+      changedById: userId
+    });
+
+    return updated;
+  }
+
+  async getServiceRequestAssignments(requestId: number): Promise<any[]> {
+    const fromTech = alias(fieldTechnicians, "fromTech");
+    const toTech = alias(fieldTechnicians, "toTech");
+
+    return db.select({
+      id: serviceRequestAssignments.id,
+      fromTechnicianName: fromTech.name,
+      toTechnicianName: toTech.name,
+      changedByName: teamMembers.name,
+      changedAt: serviceRequestAssignments.changedAt
+    })
+      .from(serviceRequestAssignments)
+      .leftJoin(fromTech, eq(serviceRequestAssignments.fromTechnicianId, fromTech.id))
+      .leftJoin(toTech, eq(serviceRequestAssignments.toTechnicianId, toTech.id))
+      .leftJoin(teamMembers, eq(serviceRequestAssignments.changedById, teamMembers.id))
+      .where(eq(serviceRequestAssignments.requestId, requestId))
+      .orderBy(desc(serviceRequestAssignments.changedAt));
+  }
+
+  async updateServiceRequestStatus(id: number, status: string, userId?: number): Promise<ServiceRequest | undefined> {
+    const existing = await this.getServiceRequestById(id);
+    if (!existing) return undefined;
+
+    if (existing.status !== status) {
+      await this.createServiceRequestStatusChange({
+        requestId: id,
+        fromStatus: existing.status,
+        toStatus: status,
+        changedById: userId
+      });
+    }
+
+    const updates: any = { status, updatedAt: new Date() };
+
+    if (status === "Completed") {
+      updates.completedAt = new Date();
+      if (existing.status === "In Progress") {
+        const lastInProgress = await db.select()
+          .from(serviceRequestStatusChanges)
+          .where(and(
+            eq(serviceRequestStatusChanges.requestId, id),
+            eq(serviceRequestStatusChanges.toStatus, "In Progress")
+          ))
+          .orderBy(desc(serviceRequestStatusChanges.changedAt))
+          .limit(1);
+
+        if (lastInProgress.length > 0) {
+          const startTime = lastInProgress[0].changedAt;
+          const durationMs = new Date().getTime() - startTime.getTime();
+          updates.executionDuration = Math.round(durationMs / 60000); // Minutes
+        }
+      }
+    }
+
+    const [result] = await db.update(serviceRequests)
+      .set(updates)
+      .where(eq(serviceRequests.id, id))
+      .returning();
+    return result;
+  }
+
+  async getServiceRequestNotes(requestId: number): Promise<(ServiceRequestNote & { authorName: string | null })[]> {
+    return db.select({
+      ...getTableColumns(serviceRequestNotes),
+      authorName: teamMembers.name
+    })
+      .from(serviceRequestNotes)
+      .leftJoin(teamMembers, eq(serviceRequestNotes.authorId, teamMembers.id))
+      .where(eq(serviceRequestNotes.requestId, requestId))
+      .orderBy(desc(serviceRequestNotes.createdAt));
+  }
+
+  async createServiceRequestNote(note: InsertServiceRequestNote): Promise<ServiceRequestNote> {
+    const [result] = await db.insert(serviceRequestNotes).values({
+      ...note,
+      createdAt: new Date()
+    }).returning();
+    return result;
+  }
+
+  async getServiceRequestStatusHistory(requestId: number): Promise<ServiceRequestStatusChange[]> {
+    return db.select().from(serviceRequestStatusChanges)
+      .where(eq(serviceRequestStatusChanges.requestId, requestId))
+      .orderBy(desc(serviceRequestStatusChanges.changedAt));
+  }
+
+  async createServiceRequestStatusChange(change: InsertServiceRequestStatusChange): Promise<ServiceRequestStatusChange> {
+    const [result] = await db.insert(serviceRequestStatusChanges).values({
+      ...change,
+      changedAt: new Date()
+    }).returning();
+    return result;
+  }
   async getUser(id: number): Promise<User | undefined> {
     const [user] = await db.select().from(teamMembers).where(eq(teamMembers.id, id));
     return user;
@@ -422,6 +712,27 @@ export class SqliteStorage implements IStorage {
     return result[0];
   }
 
+  async updateFieldTechnician(id: number, updates: Partial<InsertFieldTechnician>): Promise<FieldTechnician | undefined> {
+    const [result] = await db.update(fieldTechnicians)
+      .set({ ...updates })
+      .where(eq(fieldTechnicians.id, id))
+      .returning();
+    return result;
+  }
+
+  async deleteFieldTechnician(id: number): Promise<boolean> {
+    const [result] = await db.delete(fieldTechnicians).where(eq(fieldTechnicians.id, id)).returning();
+    return !!result;
+  }
+
+  async updateFieldTechnicianStatus(id: number, status: string): Promise<FieldTechnician | undefined> {
+    const [result] = await db.update(fieldTechnicians)
+      .set({ status })
+      .where(eq(fieldTechnicians.id, id))
+      .returning();
+    return result;
+  }
+
   // --- Detailed Evaluations (New) ---
   async createDetailedEvaluation(evalData: InsertDetailedEvaluation): Promise<DetailedEvaluation> {
     const result = await db.insert(detailedEvaluations).values({
@@ -513,6 +824,9 @@ export class SqliteStorage implements IStorage {
       technicianId: fieldTechnicians.id,
       technicianName: fieldTechnicians.name,
       role: fieldTechnicians.level, // Use Level as Role
+      status: fieldTechnicians.status,
+      supervisorId: fieldTechnicians.supervisorId,
+      supervisorName: teamMembers.name,
       specialization: fieldTechnicians.specialization,
       totalEvaluations: sql<number>`count(${detailedEvaluations.id})`,
       avgOverall: sql<number>`avg((${detailedEvaluations.ratingPunctuality} + ${detailedEvaluations.ratingDiagnosis} + ${detailedEvaluations.ratingQuality} + ${detailedEvaluations.ratingSpeed} + ${detailedEvaluations.ratingPricing} + ${detailedEvaluations.ratingAppearance}) / 6.0)`,
@@ -526,7 +840,8 @@ export class SqliteStorage implements IStorage {
     })
       .from(fieldTechnicians)
       .leftJoin(detailedEvaluations, eq(fieldTechnicians.id, detailedEvaluations.technicianId))
-      .groupBy(fieldTechnicians.id);
+      .leftJoin(teamMembers, eq(fieldTechnicians.supervisorId, teamMembers.id))
+      .groupBy(fieldTechnicians.id, teamMembers.name, teamMembers.id);
 
     return result.map(stats => {
       const total = Number(stats.totalEvaluations || 0);
@@ -534,7 +849,8 @@ export class SqliteStorage implements IStorage {
 
       let classification = "غير معتمد";
       // 90% of 5 is 4.5
-      if (avgOverall >= 4.5) classification = "ممتاز"; // > 90%
+      if (total === 0) classification = "جديد"; // New technician
+      else if (avgOverall >= 4.5) classification = "ممتاز"; // > 90%
       else if (avgOverall >= 4.0) classification = "جيد جداً"; // 80-89%
       else if (avgOverall >= 3.25) classification = "يحتاج تحسين"; // 65-79%
       else classification = "غير معتمد"; // < 65%
@@ -543,6 +859,9 @@ export class SqliteStorage implements IStorage {
         technicianId: stats.technicianId,
         technicianName: stats.technicianName,
         role: stats.role,
+        status: stats.status, // Mapped status
+        supervisorId: stats.supervisorId, // Mapped supervisorId
+        supervisorName: stats.supervisorName, // Mapped supervisorName
         specialization: stats.specialization,
         avgPunctuality: Number(stats.avgPunctuality || 0),
         avgQuality: Number(stats.avgQuality || 0),

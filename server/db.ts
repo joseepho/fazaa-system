@@ -19,7 +19,7 @@ if (process.env.USER_DATA_PATH) {
   }
 }
 
-console.log(`Using database at: ${dbPath}`);
+// console.log(`Using database at: ${dbPath}`);
 
 const sqlite = new Database(dbPath);
 export const db = drizzle(sqlite, { schema });
@@ -157,6 +157,53 @@ const initDb = () => {
       customer_complained INTEGER DEFAULT 0,
       customer_rehire INTEGER DEFAULT 1,
       created_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS service_requests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      order_number TEXT NOT NULL UNIQUE,
+      customer_name TEXT NOT NULL,
+      customer_phone TEXT NOT NULL,
+      location TEXT NOT NULL,
+      details TEXT NOT NULL,
+      request_date INTEGER NOT NULL,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'New',
+      technician_id INTEGER REFERENCES field_technicians(id),
+      location_coordinates TEXT,
+      payment_method TEXT NOT NULL DEFAULT 'Cash',
+      notes TEXT,
+      execution_duration INTEGER,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
+      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS service_request_notes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES service_requests(id),
+      text TEXT NOT NULL,
+      author_id INTEGER REFERENCES team_members(id),
+      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS service_request_status_changes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES service_requests(id),
+      from_status TEXT NOT NULL,
+      to_status TEXT NOT NULL,
+      changed_by_id INTEGER REFERENCES team_members(id),
+      changed_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    );
+
+    CREATE TABLE IF NOT EXISTS service_request_assignments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      request_id INTEGER NOT NULL REFERENCES service_requests(id),
+      from_technician_id INTEGER REFERENCES field_technicians(id),
+      to_technician_id INTEGER REFERENCES field_technicians(id),
+      changed_by_id INTEGER REFERENCES team_members(id),
+      changed_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
     );
   `);
 

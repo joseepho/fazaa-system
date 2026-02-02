@@ -52,8 +52,10 @@ export async function setupAuth(app: Express) {
         resave: false,
         saveUninitialized: false,
         store,
+        proxy: true, // Important for VPS/Nginx
         cookie: {
-            secure: app.get("env") === "production",
+            secure: false, // Allow HTTP for now since we don't have a domain/SSL yet
+            sameSite: "lax",
             maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
         }
     };

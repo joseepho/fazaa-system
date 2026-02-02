@@ -1,6 +1,6 @@
 
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -22,12 +22,17 @@ import {
 } from "@/components/ui/select";
 import { Plus } from "lucide-react";
 import { format } from "date-fns";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export function AddTechnicianDialog() {
     const [open, setOpen] = useState(false);
     const [showCustomSpec, setShowCustomSpec] = useState(false);
     const { toast } = useToast();
     const queryClient = useQueryClient();
+
+    const { data: supervisors } = useQuery<any[]>({
+        queryKey: ["/api/users/supervisors"],
+    });
 
     const createMutation = useMutation({
         mutationFn: async (data: any) => {
@@ -49,22 +54,61 @@ export function AddTechnicianDialog() {
         },
     });
 
+    const [selectedSpecs, setSelectedSpecs] = useState<string[]>(["Electrical"]);
+
+    const toggleSpec = (spec: string) => {
+        setSelectedSpecs(prev =>
+            prev.includes(spec)
+                ? prev.filter(s => s !== spec)
+                : [...prev, spec]
+        );
+    };
+
     const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         const formData = new FormData(e.currentTarget);
-        const specSelect = formData.get("specialization_select");
-        const specCustom = formData.get("specialization_custom");
+
+        // Use state for checked specs
+        const checkedSpecs = [...selectedSpecs];
+
+        const showOther = showCustomSpec; // State is reliable
+        let customSpec = "";
+        if (showOther) {
+            customSpec = (formData.get("specialization_custom") as string) || "";
+            if (customSpec.trim()) checkedSpecs.push(customSpec.trim());
+        }
+
+        if (checkedSpecs.length === 0) {
+            toast({
+                title: "خطأ",
+                description: "يجب اختيار تخصص واحد على الأقل",
+                variant: "destructive",
+            });
+            return;
+        }
+
+        const supervisorId = formData.get("supervisorId");
+
+        if (!supervisorId) {
+            toast({
+                title: "خطأ",
+                description: "يجب اختيار مشرف مسؤول",
+                variant: "destructive",
+            });
+            return;
+        }
 
         const data = {
             name: formData.get("name"),
             phone: formData.get("phone"),
-            specialization: specSelect === "Other" ? specCustom : specSelect,
+            specialization: checkedSpecs.join(","), // Store as comma separated
             level: formData.get("level"),
             area: formData.get("area"),
             contractType: formData.get("contractType"),
             joinDate: formData.get("joinDate") || format(new Date(), "yyyy-MM-dd"),
             status: "Active",
             notes: formData.get("notes"),
+            supervisorId: parseInt(supervisorId.toString(), 10),
         };
 
         createMutation.mutate(data);
@@ -78,7 +122,7 @@ export function AddTechnicianDialog() {
                     إضافة فني جديد
                 </Button>
             </DialogTrigger>
-            <DialogContent className="max-w-2xl" dir="rtl">
+            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" dir="rtl">
                 <DialogHeader>
                     <DialogTitle>إضافة فني ميداني جديد</DialogTitle>
                 </DialogHeader>
@@ -89,39 +133,61 @@ export function AddTechnicianDialog() {
                     </div>
                     <div className="space-y-2">
                         <Label>رقم الهاتف</Label>
-                        <Input name="phone" required placeholder="05xxxxxxxx" />
+                        <div className="relative">
+                            <div className="absolute left-3 top-1/2 -translate-y-1/2 flex items-center gap-2 pr-2 border-r border-border h-5">
+                                <span className="text-sm font-medium text-slate-600 dir-ltr">+966</span>
+                            </div>
+                            <Input
+                                name="phone"
+                                required
+                                placeholder="5XXXXXXXX"
+                                className="pl-24 text-left font-mono"
+                                dir="ltr"
+                            />
+                        </div>
                     </div>
 
-                    <div className="space-y-2">
-                        <Label>التخصص</Label>
-                        <Select
-                            name="specialization_select"
-                            required
-                            defaultValue="Electrical"
-                            onValueChange={(val) => setShowCustomSpec(val === "Other")}
-                        >
-                            <SelectTrigger>
-                                <SelectValue placeholder="اختر التخصص" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="Electrical">كهرباء</SelectItem>
-                                <SelectItem value="Plumbing">سباكة</SelectItem>
-                                <SelectItem value="Carpentry">نجارة</SelectItem>
-                                <SelectItem value="Painting">دهانات</SelectItem>
-                                <SelectItem value="AC">تكييف</SelectItem>
-                                <SelectItem value="Cleaning">نظافة</SelectItem>
-                                <SelectItem value="General">عام</SelectItem>
-                                <SelectItem value="Other">تخصص آخر (إضافة جديد)</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        {showCustomSpec && (
-                            <Input
-                                name="specialization_custom"
-                                placeholder="اكتب اسم التخصص الجديد..."
-                                required
-                                className="mt-2"
-                            />
-                        )}
+                    <Label>التخصص (يمكن اختيار أكثر من واحد)</Label>
+                    <div className="border rounded-md p-3 space-y-3">
+                        <div className="grid grid-cols-2 gap-2">
+                            {["Electrical", "Plumbing", "Carpentry", "Painting", "AC", "Cleaning", "General"].map((spec) => (
+                                <div key={spec} className="flex items-center space-x-2 space-x-reverse">
+                                    <Checkbox
+                                        id={`spec-${spec}`}
+                                        checked={selectedSpecs.includes(spec)}
+                                        onCheckedChange={() => toggleSpec(spec)}
+                                    />
+                                    <Label htmlFor={`spec-${spec}`} className="text-sm font-normal cursor-pointer">
+                                        {{
+                                            Electrical: "كهرباء",
+                                            Plumbing: "سباكة",
+                                            Carpentry: "نجارة",
+                                            Painting: "دهانات",
+                                            AC: "تكييف",
+                                            Cleaning: "نظافة",
+                                            General: "عام"
+                                        }[spec] || spec}
+                                    </Label>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="pt-2 border-t">
+                            <div className="flex items-center gap-2">
+                                <Checkbox
+                                    id="spec-other"
+                                    checked={showCustomSpec}
+                                    onCheckedChange={(c) => setShowCustomSpec(!!c)}
+                                />
+                                <Label htmlFor="spec-other" className="text-sm font-normal cursor-pointer">أخرى (إضافة تخصص جديد)</Label>
+                            </div>
+                            {showCustomSpec && (
+                                <Input
+                                    name="specialization_custom"
+                                    placeholder="اكتب التخصصات مفصولة بفاصلة..."
+                                    className="mt-2 h-8"
+                                />
+                            )}
+                        </div>
                     </div>
 
                     <div className="space-y-2">
@@ -165,6 +231,22 @@ export function AddTechnicianDialog() {
                     <div className="space-y-2 md:col-span-2">
                         <Label>ملاحظات</Label>
                         <Input name="notes" placeholder="ملاحظات إضافية" />
+                    </div>
+
+                    <div className="space-y-2 md:col-span-2">
+                        <Label>المشرف المسؤول</Label>
+                        <Select name="supervisorId" required>
+                            <SelectTrigger>
+                                <SelectValue placeholder="اختر مشرفاً" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {supervisors?.map((supervisor: any) => (
+                                    <SelectItem key={supervisor.id} value={supervisor.id.toString()}>
+                                        {supervisor.name} ({supervisor.role})
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="md:col-span-2 flex justify-end gap-2 mt-4">

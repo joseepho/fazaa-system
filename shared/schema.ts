@@ -1,6 +1,7 @@
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { relations } from "drizzle-orm";
 
 export const complaintSources = [
   "Social Media",
@@ -9,7 +10,9 @@ export const complaintSources = [
   "App Support",
   "Field",
   "Phone",
-  "Email"
+  "Email",
+  "Website",
+  "Walk-in"
 ] as const;
 
 export const complaintTypes = [
@@ -54,6 +57,13 @@ export const permissions = [
   "assign_complaint",
   "manage_notes",
   "update_status",
+  "view_requests",
+  "view_requests_stats",
+  "create_request",
+  "edit_request",
+  "delete_request",
+  "print_request",
+  "manage_requests",
   "view_users",
   "create_user",
   "edit_user",
@@ -265,6 +275,79 @@ export const evaluations = sqliteTable("evaluations", {
   notes: text("notes"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
 });
+
+export const serviceRequests = sqliteTable("service_requests", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  orderNumber: text("order_number").notNull().unique(), // e.g. REQ-2024-001
+  customerName: text("customer_name").notNull(),
+  customerPhone: text("customer_phone").notNull(),
+  location: text("location").notNull(),
+  details: text("details").notNull(),
+  requestDate: integer("request_date", { mode: "timestamp" }).notNull(), // The day of the visit
+  startTime: text("start_time").notNull(), // e.g. "09:00 AM" or "09:00"
+  endTime: text("end_time").notNull(), // e.g. "12:00 PM" or "12:00"
+  status: text("status").notNull().default("New"), // New, In Progress, Completed, On Hold, Cancelled
+  technicianId: integer("technician_id").references(() => fieldTechnicians.id),
+  locationCoordinates: text("location_coordinates"), // URL or Lat,Long
+  paymentMethod: text("payment_method").notNull().default("Cash"), // "Cash" | "Online"
+  notes: text("notes"), // Internal notes
+  executionDuration: integer("execution_duration"), // In minutes
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const serviceRequestRelations = relations(serviceRequests, ({ one }) => ({
+  technician: one(fieldTechnicians, {
+    fields: [serviceRequests.technicianId],
+    references: [fieldTechnicians.id],
+  }),
+}));
+
+export const serviceRequestNotes = sqliteTable("service_request_notes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  requestId: integer("request_id").references(() => serviceRequests.id).notNull(),
+  text: text("text").notNull(),
+  authorId: integer("author_id").references(() => teamMembers.id), // Internal user
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const serviceRequestStatusChanges = sqliteTable("service_request_status_changes", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  requestId: integer("request_id").references(() => serviceRequests.id).notNull(),
+  fromStatus: text("from_status").notNull(),
+  toStatus: text("to_status").notNull(),
+  changedById: integer("changed_by_id").references(() => teamMembers.id),
+  changedAt: integer("changed_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const serviceRequestAssignments = sqliteTable("service_request_assignments", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  requestId: integer("request_id").references(() => serviceRequests.id).notNull(),
+  fromTechnicianId: integer("from_technician_id").references(() => fieldTechnicians.id),
+  toTechnicianId: integer("to_technician_id").references(() => fieldTechnicians.id),
+  changedById: integer("changed_by_id").references(() => teamMembers.id),
+  changedAt: integer("changed_at", { mode: "timestamp" }).notNull().$defaultFn(() => new Date()),
+});
+
+export const insertServiceRequestSchema = createInsertSchema(serviceRequests, {
+  requestDate: z.coerce.date(),
+}).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export const insertServiceRequestNoteSchema = createInsertSchema(serviceRequestNotes).omit({ id: true, createdAt: true });
+export const insertServiceRequestStatusChangeSchema = createInsertSchema(serviceRequestStatusChanges).omit({ id: true, changedAt: true });
+
+export type ServiceRequest = typeof serviceRequests.$inferSelect;
+export type InsertServiceRequest = z.infer<typeof insertServiceRequestSchema>;
+export type ServiceRequestNote = typeof serviceRequestNotes.$inferSelect;
+export type InsertServiceRequestNote = z.infer<typeof insertServiceRequestNoteSchema>;
+export type ServiceRequestStatusChange = typeof serviceRequestStatusChanges.$inferSelect;
+export type InsertServiceRequestStatusChange = z.infer<typeof insertServiceRequestStatusChangeSchema>;
+
 export const insertEvaluationSchema = createInsertSchema(evaluations).omit({ id: true, createdAt: true });
 export type Evaluation = typeof evaluations.$inferSelect;
 export type InsertEvaluation = z.infer<typeof insertEvaluationSchema>;
@@ -293,4 +376,3 @@ export type ReportData = {
   byStatus: { status: string; count: number }[];
   bySeverity: { severity: string; count: number }[];
 };
-

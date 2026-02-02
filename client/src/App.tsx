@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import RequestsDashboard from "@/pages/requests/RequestsDashboard";
 import { Loader2 } from "lucide-react";
 import Dashboard from "@/pages/dashboard";
 import ComplaintsList from "@/pages/complaints-list";
@@ -17,6 +18,7 @@ import AuthPage from "@/pages/auth-page";
 import Settings from "@/pages/settings";
 
 import EvaluationsDashboard from "@/pages/evaluations/EvaluationsDashboard";
+import RequestDetails from "@/pages/requests/RequestDetails";
 
 function ProtectedRoute({ component: Component, ...rest }: any) {
   const { user, isLoading } = useAuth();
@@ -40,6 +42,9 @@ import { NotificationProvider } from "@/hooks/use-notifications";
 import { NotificationsBell } from "@/components/notifications-bell";
 import { ErrorBoundary } from "@/components/error-boundary";
 
+import { ThemeProvider } from "@/components/theme-provider";
+import { ModeToggle } from "@/components/mode-toggle";
+
 function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const style = {
@@ -55,9 +60,12 @@ function AuthenticatedLayout({ children }: { children: React.ReactNode }) {
           <header className="sticky top-0 z-40 flex items-center h-16 px-4 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
             <SidebarTrigger data-testid="button-sidebar-toggle" className="ml-4" />
             <div className="flex-1" />
-            {user?.role === "Admin" && <NotificationsBell />}
+            <div className="flex items-center gap-2">
+              <ModeToggle />
+              {user?.role === "Admin" && <NotificationsBell />}
+            </div>
           </header>
-          <main className="flex-1 p-6 lg:p-8 overflow-auto">
+          <main className="flex-1 p-4 lg:p-8 overflow-auto">
             {children}
           </main>
           <footer className="py-4 text-center text-sm text-muted-foreground border-t bg-background">
@@ -113,6 +121,16 @@ function Router() {
           <ProtectedRoute component={EvaluationsDashboard} />
         </AuthenticatedLayout>
       </Route>
+      <Route path="/requests/:id">
+        <AuthenticatedLayout>
+          <ProtectedRoute component={RequestDetails} />
+        </AuthenticatedLayout>
+      </Route>
+      <Route path="/requests">
+        <AuthenticatedLayout>
+          <ProtectedRoute component={RequestsDashboard} />
+        </AuthenticatedLayout>
+      </Route>
 
       <Route component={NotFound} />
     </Switch>
@@ -122,16 +140,18 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <NotificationProvider>
-          <TooltipProvider>
-            <ErrorBoundary>
-              <Router />
-              <Toaster />
-            </ErrorBoundary>
-          </TooltipProvider>
-        </NotificationProvider>
-      </AuthProvider>
+      <ThemeProvider defaultTheme="light" storageKey="vite-ui-theme">
+        <AuthProvider>
+          <NotificationProvider>
+            <TooltipProvider>
+              <ErrorBoundary>
+                <Router />
+                <Toaster />
+              </ErrorBoundary>
+            </TooltipProvider>
+          </NotificationProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

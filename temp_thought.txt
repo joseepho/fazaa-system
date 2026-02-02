@@ -1,0 +1,7 @@
+
+// Add this method to PostgresStorage class if it exists in server/storage.pg.ts
+// Usually I'd view it first, but I'll assume I need to update it to match interface if I was editing pg.ts
+// But wait, the user is likely running on SQLite local dev given 'fazza.db' and 'npm run dev'.
+// However, 'server/storage.pg.ts' is used in the build? No, 'server/storage.ts' seems main.
+// But to be safe and avoid TS errors if I edit interface, I should check storage.pg.ts later.
+// For now, let's proceed with routes.
